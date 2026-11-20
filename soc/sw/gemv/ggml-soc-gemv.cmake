@@ -15,6 +15,7 @@ if (GGML_SOC_GEMV_FPGA)
     endif()
     list(APPEND SOC_GEMV_SOURCES
         "${SOC_SW_DIR}/hal2/soc_gemv_hal.c"
+        "${SOC_SW_DIR}/hal2/soc_gemv_register_test.c"
         "${SOC_SW_DIR}/hal2/soc_gemv_arena.c"
         "${SOC_SW_DIR}/hal2/soc_gemv_backend_fpga.c")
     target_include_directories(${GGML_CPU_NAME} PRIVATE "${SOC_SW_DIR}/hal2")

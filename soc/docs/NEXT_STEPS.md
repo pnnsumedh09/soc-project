@@ -15,6 +15,22 @@ The default remains the simple sequential GEMV, with existing C/synthesis/RTL PA
 
 New source and local validation: `results/p4_integration_source_validation.md`, `../hw/vivado/gemv/README.md` and `../sw/hal2/README.md`. HAL/mock-control/arena/fallback/UBSan checks pass; both software-hook build variants retain exact emulation results. Vendor tools, target CMake build and real DMA have NOT been validated locally. The Linux adapter is optional because course-image UIO/allocator support is unknown.
 
+### New register-test boundary on LRC
+
+Dedicated register tests are written. Portable C model tests and runner/failure-propagation checks pass; actual generated-bank RTL execution is pending. This test can proceed without a PS preset or board, in parallel with obtaining the configuration below.
+
+After pulling the new source with Xilinx 2022.2 tools loaded:
+
+```bash
+mkdir -p soc/docs/results/lrc_p4
+vivado -mode batch -source soc/hw/gemv/registers/test_rtl.tcl \
+    2>&1 | tee soc/docs/results/lrc_p4/register_rtl.log
+```
+
+Return the full log and require `GEMV REGISTER RTL: PASS; ...`. This uses existing generated `soc_gemv_hw_control_s_axi.v` only; no old kernel C/synthesis/co-simulation or packaging rerun is needed. It tests bus/register behavior with synthetic engine signals, not DMA/BRAM. See `../hw/gemv/registers/README.md`.
+
+Later, after RTL PASS and actual matching hardware/UIO/PS setup, run the separate `soc/sw/hal2/board_registers` utility before DMA bring-up. It saves/restores parameter words, never starts the engine and does not require a DMA allocator. Actual board readback remains pending.
+
 ### On LRC now
 
 Latest evidence: sequential IP packaging completed on yoshi at 11:36:30 CST, and the corrected Vivado preflight passed at 11:40:34 CST. The actual generated register map matches the HAL, target part/clock match and the sequential export is accepted. Do not repeat completed packaging or preflight for unchanged files.

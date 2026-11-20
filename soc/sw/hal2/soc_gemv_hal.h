@@ -41,6 +41,14 @@ typedef struct {
     uint32_t rows, nb;
 } soc_gemv_job;
 
+typedef struct {
+    uint32_t offset, expected, actual; /* offset=UINT32_MAX when no word mismatch */
+} soc_gemv_register_failure;
+
+/* Destructive parameter readback test with save/restore; never starts a job.
+ * Exclusive idle engine required. Does not validate DMA or internal BRAM. */
+int soc_gemv_hal_register_test(soc_gemv_hal *hal, soc_gemv_register_failure *failure);
+
 /* Serialized caller; returns 0, or -1 with errno. No retries after a timeout.
  * Buffers must remain mapped/allocated and untouched while DMA may be active. */
 int soc_gemv_hal_run(soc_gemv_hal *hal, const soc_gemv_job *job,

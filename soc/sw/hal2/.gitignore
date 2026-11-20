@@ -2,3 +2,5 @@
 /board_smoke
 /*.dSYM/
 /test_backend_fallback
+/test_registers
+/board_registers

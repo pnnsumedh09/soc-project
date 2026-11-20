@@ -72,3 +72,7 @@ export SOC_GEMV_BACKEND=fpga SOC_GEMV_VERIFY=1 SOC_GEMV_STATS=1 SOC_GEMV_STRICT=
 CMake target integration, Linux compilation/MMIO/DMA behavior, full inference, performance and course-image acceptance remain pending target validation. No per-layer descriptor table is needed for v1: the existing weight cache already stores each matrix's quant/scale device addresses.
 
 Sources: [Linux UIO mapping documentation](https://www.kernel.org/doc/html/latest/driver-api/uio-howto.html), [u-dma-buf driver documentation and cache modes](https://github.com/ikwzm/udmabuf). These describe an available adapter strategy, not evidence that the course image provides it.
+
+## Dedicated register tests
+
+`make test` now also runs the portable parameter pattern/restore tester against working and injected faulty models. `board_registers` builds a separate UIO-only readback utility, without needing u-dma-buf. The standalone generated AXI-Lite RTL test and precise target prerequisites are documented in `../../hw/gemv/registers/README.md`. Run that new RTL test before board parameter-pattern writes. Neither utility validates DMA or internal activation BRAM, and actual new register RTL/board results remain pending.
