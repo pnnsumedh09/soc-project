@@ -28,6 +28,9 @@ proc get_board_parts {args} {
     return {}
 }
 proc get_property {name object} {
+    if {$name eq "CONFIG.C_EXT_RESET_HIGH" && $object eq "reset_0"} {
+        return 0
+    }
     if {$name eq "PART_NAME" && [string match "avnet.com:ultra96v2:*" $object]} {
         return xczu3eg-sbva484-1-i
     }
@@ -85,7 +88,8 @@ if {$bad} {
     if {$case eq "check" && $created != 0} { error "Preflight created a project" }
     if {$case eq "export" && !$exported} { error "Did not package existing RTL" }
     if {$case in {bd board_v2}} {
-        if {$created != 1 || [llength $connected] != 7 || $offsets ne {0xA0000000}} {
+        if {$created != 1 || [llength $connected] != 7 ||
+            $offsets ne {0xA0000000 0x00000000 0x00000000 0x00000000 0x00000000}} {
             error "Unexpected AXI topology/address map: $connected / $offsets"
         }
         if {[lsearch -exact $connected_nets [list gemv_0/interrupt zynq_ultra_ps_e_0/pl_ps_irq0]] < 0} {

@@ -138,7 +138,6 @@ set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {1}] [get_bd_cells cont
 create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 memory_xbar
 set_property -dict [list CONFIG.NUM_SI {4} CONFIG.NUM_MI {1}] [get_bd_cells memory_xbar]
 create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 reset_0
-set_property CONFIG.C_EXT_RESET_HIGH {0} [get_bd_cells reset_0]
 create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 locked_0
 set_property CONFIG.CONST_VAL {1} [get_bd_cells locked_0]
 create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 zero_0
@@ -159,6 +158,11 @@ foreach pin {gemv_0/ap_clk control_xbar/aclk memory_xbar/aclk reset_0/slowest_sy
     connect_bd_net [get_bd_pins $ps/pl_clk0] [get_bd_pins $pin]
 }
 connect_bd_net [get_bd_pins $ps/pl_resetn0] [get_bd_pins reset_0/ext_reset_in]
+set reset_high [get_property CONFIG.C_EXT_RESET_HIGH [get_bd_cells reset_0]]
+puts "Inferred processor-system-reset external polarity (1=active-high): $reset_high"
+if {$reset_high ne "0"} {
+    error "PS pl_resetn0 is active-low, but proc_sys_reset did not infer C_EXT_RESET_HIGH=0"
+}
 connect_bd_net [get_bd_pins locked_0/dout] [get_bd_pins reset_0/dcm_locked]
 foreach pin {aux_reset_in mb_debug_sys_rst} {
     connect_bd_net [get_bd_pins zero_0/dout] [get_bd_pins reset_0/$pin]
@@ -170,7 +174,11 @@ connect_bd_net [get_bd_pins gemv_0/interrupt] [get_bd_pins $ps/pl_ps_irq0]
 assign_bd_address -offset $base -range 64K \
     -target_address_space [get_bd_addr_spaces $ps/Data] \
     [get_bd_addr_segs gemv_0/s_axi_control/Reg] -force
-assign_bd_address
+foreach port {weights scales activation output_r} {
+    assign_bd_address -offset 0x00000000 -range 2G \
+        -target_address_space [get_bd_addr_spaces gemv_0/Data_m_axi_$port] \
+        [get_bd_addr_segs $ps/SAXIGP2/HP0_DDR_LOW] -force
+}
 validate_bd_design
 save_bd_design
 write_bd_tcl -force "$work/soc_gemv_bd.tcl"
