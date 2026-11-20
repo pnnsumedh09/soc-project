@@ -218,9 +218,9 @@ The project handout requires HW/SW co-verification and cites Lab 3 and the board
 
 QEMU runs the ARM software. In Lab 3, a separate SystemC/TLM model represented the accelerator through remote-port. That model does not simulate the generated GEMV RTL. HLS RTL co-simulation tests generated RTL against the testbench, while QEMU/SystemC tests software/model interaction. Neither gives measured physical DDR bandwidth, FPGA timing closure or real cache-coherency behavior.
 
-The old platform's `zynqmp_dot.cc` connects only the control/slave path and calls `zynq.tie_off()` for unused ports. A useful GEMV version needs a new GEMV register/data model, an HP-port memory initiator, DMA-visible guest buffers and a compatible HAL. Re-running the old dot-product simulation verifies the old design, not the new DMA architecture. Use a tiny matrix first, then TinyStories with 1-10 tokens if this path is pursued.
+The old platform's `zynqmp_dot.cc` connects only the control/slave path and calls `zynq.tie_off()` for unused ports. A useful GEMV version needs a new GEMV register/data model, an HP-port memory initiator, DMA-visible guest buffers and a compatible HAL. Re-running the old dot-product simulation verifies the old design, not the new DMA architecture. Use a tiny matrix first, then TinyStories with 1-10 tokens if this path is pursued. The active teammate handoff is `QEMU_SYSTEMC_HANDOFF.md`.
 
-Reference locations: `reference/lab3_handout_text.txt`, `reference/lab3_report_text.txt`, `../lab3_ref/LAB3_README.md`, and the original `../../../ece382m-20-fa26-lab-3-group-18-main/` directory. The copied `soc/lab3_ref/part3/cosim/setup.sh` expects a `Makefile.dot` missing from that reference copy; it is present in the original Lab 3 directory. Keep the reference copy unchanged and use the original working setup if rerunning Lab 3.
+Reference locations: `reference/lab3_handout_text.txt`, `reference/lab3_report_text.txt`, `../lab3_ref/LAB3_README.md`, and the original `../../../ece382m-20-fa26-lab-3-group-18-main/` directory. The preserved reference now includes both `part3/cosim/setup.sh` and `Makefile.dot`. Keep it unchanged; copy/adapt its pattern under `soc/sw/cosim/` for the new GEMV model.
 
 ## What Codex can work on while these runs happen
 
