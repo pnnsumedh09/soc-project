@@ -17,24 +17,14 @@ New source and local validation: `results/p4_integration_source_validation.md`, 
 
 ### On LRC now
 
-Latest evidence: sequential IP packaging completed on yoshi at 11:36:30 CST. The subsequent checker failed because its wildcard also matched the API header; the exact-filename correction is now in source. Pull the fix and run the preflight below directly. Do not rerun the completed packaging or kernel simulations.
+Latest evidence: sequential IP packaging completed on yoshi at 11:36:30 CST, and the corrected Vivado preflight passed at 11:40:34 CST. The actual generated register map matches the HAL, target part/clock match and the sequential export is accepted. Do not repeat completed packaging or preflight for unchanged files.
 
-For other checkouts: pull the new source. If `soc/hw/hls_work/gemv/f150_b64_o8/solution/impl/ip/component.xml` is absent, package the existing sequential synthesis (do not reset/rebuild it):
+Vivado reports no installed Ultra96 board definitions. Before `SOC_GEMV_BUILD_STAGE=bd`, obtain exactly one verified configuration:
 
-```bash
-vitis_hls -f soc/hw/gemv/export_existing.tcl
-```
+- `SOC_GEMV_PS_CONFIG`: course Tcl configuring the existing `$ps` (DDR/MIO/PS settings), or
+- `SOC_GEMV_BOARD_PART`: a matching installed board definition, optionally registered through `SOC_GEMV_BOARD_REPO`.
 
-Then run the non-building preflight:
-
-```bash
-mkdir -p soc/docs/results/lrc_p4
-SOC_GEMV_BUILD_STAGE=check vivado -mode batch \
-    -source soc/hw/vivado/gemv/build_vivado.tcl \
-    2>&1 | tee soc/docs/results/lrc_p4/preflight.log
-```
-
-Return `preflight.log`. It checks exported target/clock/register ABI and lists board definitions without needing a PS preset. Actual BD/build requires the matching course PS configuration or installed board definition; do not silently switch -e/-i targets. See the P4.1 README for subsequent BD/bitstream stages.
+No matching PS configuration was found among the available local project/reference Tcl files. Confirm the intended -e/-i target before selecting a preset; do not silently retarget. A course Vivado project/BD Tcl or board tutorial assets may contain the settings. Once those are available, validate the BD/address map before implementation/bitstream. A physical board is not needed for this LRC BD step, but the correct board configuration is. See `../hw/vivado/gemv/README.md` for the stage commands.
 
 ### On the board when available
 
