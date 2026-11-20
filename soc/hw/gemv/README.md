@@ -64,7 +64,10 @@ From the llama.cpp root:
 
 ```bash
 make -C soc/hw/gemv test
+make -C soc/hw/gemv script-test
 ```
+
+`script-test` uses mocked vendor commands to check script control flow, source paths and the Vitis 2022.2 Boolean-option spelling. It does not run Vitis or establish C/RTL simulation success.
 
 The testbench compares every successful output row bit-for-bit with `soc_q8r_gemv_ref`, compiled as C with `-ffp-contract=off`. The native kernel uses the compiler's unsigned 128-bit type in place of `ap_uint<128>`. Synthetic tests cover different row counts and block lengths, alternating signs, int8 extremes, zero/subnormal/mixed scales, repeated calls with changing shapes/data, invalid descriptors and nonfinite scale errors. All 63,488 finite FP16 representations are compared between the reused converter and reference converter. Native canaries check output bounds and shape/activation-error no-write behavior.
 

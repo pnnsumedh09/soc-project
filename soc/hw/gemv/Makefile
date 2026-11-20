@@ -19,8 +19,11 @@ dot_core.o: ../../lab3_ref/part3/dot_q8_0_core.cpp ../../lab3_ref/part3/dot_q8_0
 test: test_gemv_hw
 	./test_gemv_hw
 
+script-test:
+	tclsh test_hls_script.tcl
+
 test-real: test_gemv_hw
 	cd ../../.. && PYTHONPATH=gguf-py PYTHONDONTWRITEBYTECODE=1 python3 soc/tools/dump_q8_tensor.py $(abspath $(MODEL)) $(DUMPDIR) --rows 64
 	./test_gemv_hw $(DUMPDIR)/*.bin
 
-.PHONY: test test-real
+.PHONY: test script-test test-real

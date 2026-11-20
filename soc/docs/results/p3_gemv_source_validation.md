@@ -37,3 +37,9 @@ The golden result comes from the existing C `soc_q8r_gemv_ref`, independently co
 Next is Vitis C simulation on LRC using the new `soc/hw/gemv/build_hls.tcl`. The default HLS testbench has 54 top-level calls and 720 successful output rows; the native-only maximum-row case is excluded to keep co-simulation adapters bounded. After C simulation, review synthesis for actual burst inference, separate FP operations, achieved II, resources and timing, then run RTL co-simulation. A pipeline pragma is not evidence of the achieved II. Strict FP recurrence may require a slower baseline or a later row-interleaved design.
 
 No Vivado design, bitstream, FPGA backend integration, real GEMV throughput or ASIC area/power result is established by these native tests. Model, DMA-memory, bandwidth and ASIC promotion gates remain pending.
+
+## First LRC attempt and script fix: 2026-11-20
+
+Sumedh's first Vitis HLS 2022.2 run reached solution setup but failed before C simulation: `config_compile -unsafe_math_optimizations false` treated the separate `false` token as an unknown option. The tool's help specifies the `-option[=true|false]` form. Corrected both FP options to `-unsafe_math_optimizations=false` and `-no_signed_zeros=false`.
+
+Added `test_hls_script.tcl` and `make script-test`: the local mocked check rejects the exact old syntax, accepts both corrected options, verifies source paths and reaches csim-only dispatch. It passes. This does not constitute vendor-tool validation; the actual Vitis rerun is pending. Kernel arithmetic and previously passed native numerical tests are unchanged.

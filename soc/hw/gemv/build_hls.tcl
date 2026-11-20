@@ -28,8 +28,8 @@ add_files -tb "$soc/sw/repack/soc_repack.c" -cflags "-std=c11 -ffp-contract=off 
 open_solution -reset solution -flow_target vivado
 set_part $part
 create_clock -period [expr {1000.0 / $mhz}] -name default
-config_compile -unsafe_math_optimizations false
-config_compile -no_signed_zeros false
+config_compile -unsafe_math_optimizations=false
+config_compile -no_signed_zeros=false
 
 # Depths cover 64 rows of the largest input width in the co-simulation testbench.
 set_directive_interface -mode m_axi -offset slave -bundle weights -depth 19456 \
