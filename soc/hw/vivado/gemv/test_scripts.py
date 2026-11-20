@@ -45,7 +45,7 @@ if {$case eq "bd"} { set env(SOC_GEMV_BUILD_STAGE) bd }
 if {$case eq "no_ps"} { set env(SOC_GEMV_BUILD_STAGE) bd; unset env(SOC_GEMV_PS_CONFIG) }
 if {$case eq "bad_base"} { set env(SOC_GEMV_CONTROL_BASE) 0xa0000001 }
 if {$case eq "r8"} { set env(SOC_GEMV_HW_ROW_INTERLEAVE) 8 }
-set bad [expr {$case in {no_ps bad_base r8 bad_abi bad_part bad_clock}}]
+set bad [expr {$case in {no_ps bad_base r8 bad_abi bad_header bad_part bad_clock}}]
 set failed [catch {source $script} message]
 if {$bad} {
     if {!$failed || $created != 0} { error "Guard failed: $case / $message" }
@@ -98,6 +98,9 @@ def main():
         ip = solution / "impl/ip"
         header = ip / "drivers/soc_gemv_hw/src/xsoc_gemv_hw_hw.h"
         header.parent.mkdir(parents=True)
+        # Real Vitis 2022.2 emits both: the old *_hw.h glob matched them both.
+        api_header = header.with_name("xsoc_gemv_hw.h")
+        api_header.write_text('#include "xsoc_gemv_hw_hw.h"\n')
         (ip / "component.xml").write_text("<mock />\n")
         registers = dict(AP_CTRL=0, GIE=4, W_QUANTS_DATA=0x10, W_SCALES_DATA=0x20,
                          X_NATIVE_DATA=0x30, Y_DATA=0x40, ROWS_DATA=0x50,
@@ -105,6 +108,7 @@ def main():
         abi = "".join(f"#define XSOC_GEMV_HW_CONTROL_ADDR_{name} {value:#x}\n"
                       for name, value in registers.items())
         header.write_text(abi)
+        assert len(list(header.parent.glob("*_hw.h"))) == 2
         ps = root / "ps.tcl"
         ps.write_text("# mock verified course PS settings\n")
         mock = root / "mock.tcl"
@@ -112,8 +116,9 @@ def main():
         import os
         env = {k:v for k,v in os.environ.items() if not k.startswith("SOC_GEMV_")}
         env["SOC_GEMV_PS_CONFIG"] = str(ps)
-        for case in ("check", "bd", "no_ps", "bad_base", "r8", "bad_abi", "bad_part", "bad_clock", "export"):
+        for case in ("check", "bd", "no_ps", "bad_base", "r8", "bad_abi", "bad_header", "bad_part", "bad_clock", "export"):
             header.write_text(abi.replace("STATUS_DATA 0x60", "STATUS_DATA 0x68") if case=="bad_abi" else abi)
+            if case == "bad_header": header.unlink()
             current_xml = xml.replace("-1-e", "-1-i") if case=="bad_part" else xml
             if case=="bad_clock": current_xml = xml.replace("6.67", "10.00")
             xmlpath.write_text(current_xml)

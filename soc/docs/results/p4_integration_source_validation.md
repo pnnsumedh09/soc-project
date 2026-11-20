@@ -46,3 +46,11 @@ Earlier notes conflated element/access widths with AXI data-bus widths. The supp
 4. Load matching hardware, run board smoke, then target-hook verification/full-model evaluation. Gates M0/D0/B0/A0 remain unpassed.
 
 Sources for the optional strategy: [Linux UIO](https://www.kernel.org/doc/html/latest/driver-api/uio-howto.html), [u-dma-buf](https://github.com/ikwzm/udmabuf), [Vitis HLS 2022.2 export_design](https://docs.amd.com/r/2022.2-English/ug1399-vitis-hls/export_design), [SmartConnect widths](https://docs.amd.com/r/en-US/pg247-smartconnect/Width-Conversion). These are interface references, not board acceptance evidence.
+
+## First LRC packaging and header-selector fix: 2026-11-20
+
+Sumedh supplied actual Vitis HLS/Vivado 2022.2 export output on yoshi, 11:35:58–11:36:40 CST. Existing sequential project f150_b64_o8 opened without reset; export_design completed and generated solution/impl/export.zip at 11:36:30. Packaging succeeded. The script then failed in our post-export register-header checker, before claiming ABI agreement.
+
+User's find output confirms both generated files under impl/ip/drivers/soc_gemv_hw_v1_0/src: xsoc_gemv_hw.h (API) and xsoc_gemv_hw_hw.h (register definitions), with another pair under impl/misc. The wildcard `*_hw.h` matched both files inside ip and incorrectly rejected the count of two. Fixed it to select exact basename `xsoc_gemv_hw_hw.h`; do not include misc copies or silently bypass register checks.
+
+Local regression now reproduces both real filenames, passes preflight/BD/packaging dispatch with mocked commands, and still rejects a missing register header, incorrect offsets, part and clock. No HLS/kernel/HAL change. Preserve the successful existing export; after pulling this correction, run Vivado stage check directly to perform the ABI/preflight check. No repeat of packaging, C simulation, synthesis or co-simulation is required. Actual ABI confirmation and Vivado integration remain pending the new preflight output.

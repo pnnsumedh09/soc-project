@@ -1,7 +1,11 @@
 # Shared preflight for the HLS-generated software register ABI.
 proc soc_gemv_check_registers {ip_repo} {
-    set headers [glob -nocomplain "$ip_repo/drivers/*/src/*_hw.h"]
-    if {[llength $headers] != 1} { error "Expected one generated HLS register header under $ip_repo/drivers" }
+    # The top name ends in _hw, so *_hw.h also matches the API header
+    # xsoc_gemv_hw.h. Select the actual register header by its exact basename.
+    set headers [glob -nocomplain "$ip_repo/drivers/*/src/xsoc_gemv_hw_hw.h"]
+    if {[llength $headers] != 1} {
+        error "Expected one xsoc_gemv_hw_hw.h register header under $ip_repo/drivers; found [llength $headers]: $headers"
+    }
     set f [open [lindex $headers 0] r]
     set text [read $f]
     close $f

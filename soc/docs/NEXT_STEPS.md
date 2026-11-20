@@ -17,7 +17,9 @@ New source and local validation: `results/p4_integration_source_validation.md`, 
 
 ### On LRC now
 
-Pull the new source. If `soc/hw/hls_work/gemv/f150_b64_o8/solution/impl/ip/component.xml` is absent, package the existing sequential synthesis (do not reset/rebuild it):
+Latest evidence: sequential IP packaging completed on yoshi at 11:36:30 CST. The subsequent checker failed because its wildcard also matched the API header; the exact-filename correction is now in source. Pull the fix and run the preflight below directly. Do not rerun the completed packaging or kernel simulations.
+
+For other checkouts: pull the new source. If `soc/hw/hls_work/gemv/f150_b64_o8/solution/impl/ip/component.xml` is absent, package the existing sequential synthesis (do not reset/rebuild it):
 
 ```bash
 vitis_hls -f soc/hw/gemv/export_existing.tcl
