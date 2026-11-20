@@ -42,7 +42,7 @@ This file maps every document in the project. When transferring context to anoth
 | 8a | `soc/docs/results/p1_bw_test_validation.md` | P1.1 native checks, verified LRC HLS run and current integration status. | HLS verified; no board bandwidth measurement |
 | 8b | `soc/docs/results/p3_gemv_source_validation.md` | P3.1 native/real-weight and Vitis C checks, plus synthesis follow-up. | C and baseline RTL checks pass; synthesis reviewed |
 | 8c | `soc/docs/results/hls_gemv_f150_b64_o8_v1.md` | First GEMV synthesis baseline, achieved II, ports, resources, warnings and next checks. | Reviewed; II=5 misses target 1; baseline RTL passes |
-| 8d | `soc/docs/results/hls_gemv_f150_b64_o8_r8.md` | Eight-row interleaving candidate, tile/accumulator design and expanded local checks. | Native/real-slice/UBSan and Vitis C pass; compute II=1; candidate RTL pending |
+| 8d | `soc/docs/results/hls_gemv_f150_b64_o8_r8.md` | Eight-row interleaving candidate, tile/accumulator design and expanded local checks. | Native/real-slice/UBSan and Vitis C pass; compute II=1; candidate RTL passes |
 | 9 | `soc/docs/results/baseline_300mhz.md` | 300 MHz single-core baseline speed and accuracy | TODO (P0.2) |
 | 10 | `soc/docs/results/model_sweep_300mhz.md` | Model/quant sweep results at 300 MHz | TODO (P0.3) |
 | 11 | `soc/docs/results/board_memory.md` | CMA, free memory, allocation sequence test | TODO (P0.6) |
@@ -137,7 +137,7 @@ llama.cpp/
 ### Phase 3: HLS accelerator
 - P3.1 GEMV HLS kernel v1 — **DONE (source + Vitis C simulation)**; first synthesis reviewed; baseline RTL passes
 - P3.2 Testbench — **DONE (testbench + Vitis C simulation)**; RTL validation remains P3.3
-- P3.3 HLS synthesis + design exploration (LRC) — **DOING**; v1 synthesis reviewed, main II=5, baseline RTL passes; eight-row candidate Vitis C passes and compute II=1; candidate RTL next
+- P3.3 HLS synthesis + design exploration (LRC) — **DOING**; v1 synthesis reviewed, main II=5, baseline RTL passes; eight-row candidate Vitis C/RTL pass and compute II=1; further exploration pending
 - P3.4 (Optional) SystemC/TLM co-verification — TODO
 
 ### Phase 4: Integration

@@ -15,17 +15,11 @@ The sequential baseline passed Vitis C simulation and Verilog co-simulation (54 
 
 The eight-row candidate now passes Vitis C simulation (85 calls, 1,110 rows, zero error) and synthesis review. `interleave_words` achieved II=1/depth=22 versus baseline II=5. Candidate estimates: 12,580 LUT, 10,660 FF, 22 DSP and 11 BRAM_18K. Burst reads and output burst writes are inferred. Whole-kernel speedup is unmeasured; see `results/hls_gemv_f150_b64_o8_r8.md`.
 
-Next, run the unchanged candidate's RTL co-simulation from the LRC repository root:
+The candidate's RTL co-simulation is now verified from `project/lrc/gemv_r8_review.tar.gz`: Verilog PASS, 85 calls, 1,110 rows, max absolute error 0, no failures. No repeat or further LRC command is needed for the unchanged candidate.
 
-```bash
-set -o pipefail
-mkdir -p soc/docs/results/lrc_p3_r8
-SOC_GEMV_HW_ROW_INTERLEAVE=8 SOC_GEMV_HW_STAGE=cosim \
-    vitis_hls -f soc/hw/gemv/build_hls.tcl \
-    2>&1 | tee soc/docs/results/lrc_p3_r8/cosim.log
-```
+Recorded per-call cycle counts in `results/hls_gemv_f150_b64_o8_r8.md`. Examples at configured 150 MHz: 32 rows × 896 inputs = 9,244 cycles (61.627 µs); 64 rows × 4,864 inputs = 88,596 cycles (590.640 µs). These are simulated transaction times, not board throughput. The reports do not break down loading versus computation.
 
-The cosim stage automatically repeats C simulation/synthesis before RTL simulation; no separate synth rerun is needed. Preserve existing candidate logs/reports first. Expected final test summary: 85 calls, 1,110 rows, max absolute error 0, zero failures, followed by explicit C/RTL PASS. Return `cosim.log` and `soc/hw/hls_work/gemv/f150_b64_o8_r8/solution/sim/report/`. No board preset, bitstream or QEMU is needed.
+Next independent work is to retain r8 as a verified comparison point and design the next performance experiment. Overlapping tile reads with compute using double buffering is a candidate; exact phase attribution would require waveform analysis or profiling. Compare total latency, numerical correctness and resources for each changed design. Board/ASIC gates and the third P3.3 design alternative remain pending.
 
 ### Completed C-simulation instructions (reference)
 

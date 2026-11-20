@@ -1,6 +1,6 @@
 # GEMV eight-row interleaving candidate
 
-Date: 2026-11-20. Status: native numerical validation, Vitis C simulation and synthesis review pass; candidate RTL co-simulation is pending. The prior sequential baseline passed actual Vitis C/RTL tests; those results do not transfer to this changed implementation.
+Date: 2026-11-20. Status: native numerical validation, Vitis C simulation and synthesis review pass; candidate RTL co-simulation also passes; design exploration and board performance remain pending. The prior sequential baseline passed actual Vitis C/RTL tests; those results do not transfer to this changed implementation.
 
 ## Source design
 
@@ -52,3 +52,38 @@ II=5 to II=1 gives five times the scheduled compute-loop initiation rate for ful
 Next: keep this candidate unchanged and run Verilog co-simulation. The script repeats C simulation/synthesis as part of its cosim stage; no separate repeat of the synth command is requested. Candidate RTL PASS is still required before further optimization.
 
 Current top XML SHA256: `a16962f37bd7cfb5287761a954231e9267aa92ea8af21e3e5e6ecf409a1ebdd6`.
+
+## RTL PASS and transaction latency review: 2026-11-20
+
+Evidence: `project/lrc/gemv_r8_review.tar.gz`, report time 02:33:26 CST. The archive contains actual cosim.log, top cosim report, lat.rpt, RTL simulator log and result.transaction.rpt. Verilog/xsim status is Pass, and the final RTL-backed testbench reports 85 calls, 1,110 successful rows, max absolute error 0 and zero failures. Explicit C/RTL PASS and stage cosim completion are present, with no ERROR/FATAL lines. No rerun of the unchanged candidate is needed.
+
+Top report: latency min 79 / average 11,870 / max 88,596 cycles; interval min 63 / average 11,935 / max 88,580 cycles; total execution time 1,007,685 cycles. These aggregates mix valid shapes with empty/error calls and are not representative matrix timings. The last transaction has undefined interval (`x`). Use the per-transaction latency field for the following successful matrix cases, mapped to the source testbench's six patterns and 12 shapes:
+
+| Rows | Input elements | Transaction IDs (six patterns) | Latency cycles, min–max | Time at 150 MHz, µs |
+|---:|---:|---|---:|---:|
+| 1 | 32 | 0, 12, 24, 36, 48, 60 | 265–280 | 1.767–1.867 |
+| 3 | 32 | 1, 13, 25, 37, 49, 61 | 339 | 2.260 |
+| 4 | 96 | 2, 14, 26, 38, 50, 62 | 564 | 3.760 |
+| 7 | 896 | 3, 15, 27, 39, 51, 63 | 3346 | 22.307 |
+| 32 | 896 | 4, 16, 28, 40, 52, 64 | 9244 | 61.627 |
+| 9 | 4864 | 5, 17, 29, 41, 53, 65 | 21858 | 145.720 |
+| 64 | 4864 | 6, 18, 30, 42, 54, 66 | 88596 | 590.640 |
+| 8 | 1024 | 7, 19, 31, 43, 55, 67 | 3957 | 26.380 |
+| 9 | 1056 | 8, 20, 32, 44, 56, 68 | 5205 | 34.700 |
+| 17 | 2080 | 9, 21, 33, 45, 57, 69 | 14318 | 95.453 |
+| 16 | 2048 | 10, 22, 34, 46, 58, 70 | 11991 | 79.940 |
+| 15 | 992 | 11, 23, 35, 47, 59, 71 | 5738 | 38.253 |
+
+Time conversions use the configured 150 MHz simulation clock, not a measured or post-route FPGA frequency. Transaction 0 takes 280 cycles while the corresponding five later cases take 265; the report establishes this difference but not its cause. All other corresponding successful shape timings match across the six patterns. Transactions 72–77 are shape/empty checks, 78–83 are nonfinite activation/weight checks, and 84 is the late-tail-tile invalid-scale case (5,127 cycles).
+
+## What the latency evidence establishes
+
+The largest bounded case reads 64×152×34 = 330,752 bytes of quant/scale weight payload and takes 590.64 µs in co-simulation. Dividing payload by full-call time gives about 0.560 GB/s as a simulation-derived effective weight-payload rate. This includes full-call overhead in the denominator and excludes activation/output bytes in the numerator; it is not measured DDR bandwidth or a token-rate prediction.
+
+The reports contain per-call latency, not separate phase measurements. They cannot directly attribute cycles to activation load, tile reads, scale conversion, compute or output. For a full eight-row group, the source issues 2×blocks×8 compute slots; across the 64×152 case this is 19,456 II=1 slots. That is not the entire compute phase duration: pipeline fill/drain and control must also be counted. The full call's 88,596 cycles confirms that II=1 alone does not describe end-to-end latency.
+
+The archive does not include matched sequential-baseline transaction latencies, so no measured before/after full-GEMV speedup is established. Optional real-tensor fixtures and the native max-row case remain outside this bounded RTL suite.
+
+Next work: retain this verified r8 baseline and compare subsequent candidates on the same shapes. Double buffering to overlap tile reads with computation is a candidate, but its benefit has not been measured. Exact phase attribution would require internal waveform analysis or targeted phase profiling; these reports alone do not supply that breakdown. Activation-load and scale-conversion improvements remain alternatives. P3.3 still requires at least three design alternatives; baseline plus r8 currently provide two source designs.
+
+Archive SHA256: `ebb92218d25b2db95c0fb1c7edeff5e481785ece8fa0bf2209885845a1d4609c`.

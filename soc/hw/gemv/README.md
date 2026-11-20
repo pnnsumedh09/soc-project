@@ -1,6 +1,6 @@
 # P3.1: Q8_0 GEMV HLS kernel v1
 
-Status: the sequential baseline (`SOC_GEMV_HW_ROW_INTERLEAVE=1`) passed Vitis C simulation and Verilog co-simulation on LRC (54 calls, 720 rows, zero error); synthesis achieved main II=5 with 9,317 LUT/6,210 FF/12 DSP/7 BRAM_18K. The new default eight-row candidate has passed native golden tests and UBSan, including real Qwen slices. Candidate Vitis C simulation now passes (85 calls, 1,110 rows, zero error); synthesis achieves compute II=1/depth=22 with 12,580 LUT/10,660 FF/22 DSP/11 BRAM_18K. Candidate RTL validation remains pending. Baseline results do not validate the changed candidate or establish implemented timing/bandwidth.
+Status: the sequential baseline (`SOC_GEMV_HW_ROW_INTERLEAVE=1`) passed Vitis C simulation and Verilog co-simulation on LRC (54 calls, 720 rows, zero error); synthesis achieved main II=5 with 9,317 LUT/6,210 FF/12 DSP/7 BRAM_18K. The new default eight-row candidate has passed native golden tests and UBSan, including real Qwen slices. Candidate Vitis C simulation now passes (85 calls, 1,110 rows, zero error); synthesis achieves compute II=1/depth=22 with 12,580 LUT/10,660 FF/22 DSP/11 BRAM_18K. Candidate Verilog co-simulation also passes (85 calls, 1,110 rows, zero error); 64 rows × 4,864 inputs takes 88,596 simulated cycles (590.64 µs at configured 150 MHz). Baseline results do not validate the changed candidate or establish implemented timing/bandwidth.
 
 ## Data path and row interleaving
 
@@ -33,7 +33,7 @@ The source requests compute II=1; the reviewed LRC candidate synthesis achieves 
 
 Supported bounds are `rows <= 151936` and `nb <= 152` (input <= 4864). A nonempty matrix needs `nb >= 1`; `rows == 0` is a successful no-op for `nb` in 0..152. Invalid shapes return before any input/output memory access. Bounds keep all index products within uint32. They do not establish that a caller allocated enough memory: the future HAL must validate buffer sizes, alignment, lifetime, device addresses and non-overlap.
 
-All FP16 scale bit patterns with finite values, including signed zero and subnormals, are supported. The reused integer FP16 conversion avoids the FPGA half-precision IP's denormal-flushing behavior. Intermediate products/sums for finite FP16 scales and these dimension bounds stay within normal FP32 range (or zero). Separate FP multiply/add, disabled compiler contraction and disabled unsafe FP optimizations preserve the reference order. The eight-row candidate's native bit-exactness still needs confirmation against generated RTL; the sequential baseline has passed its bounded RTL suite.
+All FP16 scale bit patterns with finite values, including signed zero and subnormals, are supported. The reused integer FP16 conversion avoids the FPGA half-precision IP's denormal-flushing behavior. Intermediate products/sums for finite FP16 scales and these dimension bounds stay within normal FP32 range (or zero). Separate FP multiply/add, disabled compiler contraction and disabled unsafe FP optimizations preserve the reference order. Both the eight-row candidate and sequential baseline have passed their bounded RTL suites; optional real-weight slices remain native-only evidence.
 
 | Status | Meaning | Output validity |
 |---|---|---|
@@ -88,7 +88,7 @@ soc/hw/gemv/test_gemv_hw /absolute/path/to/tensor.bin
 
 The testbench checks at most the first 64 rows of each supplied tensor file, with deterministic synthetic activations and the real weight values. The full model's generated text or score has not been tested through this hardware path.
 
-## LRC boundaries for the eight-row candidate (C/synthesis reviewed; RTL next)
+## LRC boundaries for the eight-row candidate (C/synthesis/RTL complete)
 
 Sync the new `soc/hw/gemv/` directory to LRC along with its existing repack and Lab 3 dependencies. From the project root in the Xilinx 2022.2 environment:
 
@@ -109,4 +109,4 @@ Before promoting the kernel, review the achieved loop II, inferred quants/scales
 
 References: existing `../../sw/repack/README.md`, `../../lab3_ref/part3/dot_q8_0_core.cpp`, [AMD FP operation ordering](https://docs.amd.com/r/2022.2-English/ug1399-vitis-hls/Optimizing-Logic-Expressions), and [AMD operator binding](https://docs.amd.com/r/2022.2-English/ug1399-vitis-hls/pragma-HLS-bind_op).
 
-The sequential baseline is recorded in `../../docs/results/hls_gemv_f150_b64_o8_v1.md`; its RTL suite has passed. The candidate's source design and local validation are in `../../docs/results/hls_gemv_f150_b64_o8_r8.md`. Keep the baseline artifacts and run the candidate C/synthesis checks before its RTL co-simulation. Do not reuse the baseline's schedule/resource numbers for the candidate.
+The sequential baseline is recorded in `../../docs/results/hls_gemv_f150_b64_o8_v1.md`; its RTL suite has passed. The candidate's source design and local validation are in `../../docs/results/hls_gemv_f150_b64_o8_r8.md`. Both variants now have bounded RTL PASS evidence. Keep their artifacts and use the recorded transaction latencies to compare further candidates. Do not reuse the baseline's schedule/resource numbers for the candidate.
