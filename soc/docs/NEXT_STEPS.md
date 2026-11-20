@@ -40,6 +40,8 @@ vivado -mode batch -source soc/hw/vivado/gemv/build_vivado.tcl \
 
 Return `vivado_bd.log`, `soc/hw/vivado/gemv_f150_b64_o8/address_map.csv` and `soc/hw/vivado/gemv_f150_b64_o8/soc_gemv_bd.tcl`. Review the AXI-Lite base, all four HP0 DDR mappings, clock/reset, interrupt and validation messages before the bitstream stage.
 
+The cleaned actual BD run now passes this review: explicit inverted reset polarity is correct, control is `0xA0000000/64KiB`, and all four masters see `HP0_DDR_LOW` at `0x00000000/2GiB`; no ERROR/CRITICAL WARNING is present. The next LRC boundary is `SOC_GEMV_BUILD_STAGE=bitstream` with the same board repository and board identifier. Return the complete log plus generated timing/utilization reports and BIT/HWH/XSA; do not load the board until routed timing and artifacts are reviewed.
+
 The script also retains an alternate verified-configuration input:
 
 - `SOC_GEMV_PS_CONFIG`: course Tcl configuring the existing `$ps` (DDR/MIO/PS settings), or
