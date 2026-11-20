@@ -1,0 +1,228 @@
+11/18/26, 2:02 PM                                                          ECE382M.20: SoC, Lab 2
+
+
+
+                                            System-on-Chip (SoC) Design
+                                                                 ECE382M.20, Fall 2026
+
+                                                                       Lab #2
+                                                         Due: 6:00pm, October 13, 2026
+
+                Instructions:
+                      •    This lab is a team exercise.
+                      •    Please use the discussion board on ED for Q&A.
+                      •    Submit the report on Canvas and code on Classroom 50.
+
+
+
+
+https://users.ece.utexas.edu/~gerstl/ece382m_f26/labs/lab2.htm                                      1/6
+11/18/26, 2:02 PM                                                ECE382M.20: SoC, Lab 2
+
+
+
+
+https://users.ece.utexas.edu/~gerstl/ece382m_f26/labs/lab2.htm                            2/6
+11/18/26, 2:02 PM                                                     ECE382M.20: SoC, Lab 2
+
+
+
+
+                1     Overview
+                The goals of this lab are to:
+                   • Isolate the vector dot product code in llama.cpp
+                   •    Use Xilinx's Vitis high-level synthesis (HLS) tool to synthesize the dot product accelerator
+                       and generate Verilog or VHDL code at the register transfer level (RTL).
+                   • Validate the generated RTL code and compare the results with the reference C model.
+                   • Explore various architectural alternatives.
+
+
+                2     Tutorial
+                Please refer to the following materials for a tutorial by Xilinx that you can follow at your own pace:
+                    • Vitis High-Level Synthesis User Guide (UG1399)
+                    • Vitis HLS tutorial (sources on Github)
+
+
+                3     Isolating the Vector Dot Product
+                From your profiling results in Lab 1, you may have noticed that for Qwen2.5-0.5 (quantized at
+                Q8_0) over 90% of computational effort is spent in a single function: ggml_vec_dot_q8_0_q8_0.
+                This function is computing the dot product of two 8-bit quantized (Q8_0) vectors and returning a
+                single value (FP32). Since we are trying to accelerate our LLM, this function is a good starting point
+                for hardware implementation. To start, isolate the function ggml_vec_dot_q8_0_q8_0 from
+                ggml/src/ggml-cpu/arch/arm/quants.c and any of its dependencies (e.g. macros or global
+                variables) in a standalone program, such that you can build and run it in isolation without any other
+                llama.cpp functionality. Isolate the simplest dot product implementation found in this routine,
+                removing any specialized (e.g., NEON SIMD) code.
+
+                To test your isolated function, e.g., in it’s own main(), create a basic test program that executes
+                different inputs and checks against expected outputs. These can be hand-chosen or taken from
+                llama.cpp runs.
+
+
+                4     Creating Standalone, Synthesizable Code
+                Starting from your isolated vector dot product, we will now create a standalone dot product function
+                that can be fed into Vitis HLS for synthesis:
+                      a)     Take the single, isolated dot product function that you created in Part 3 and modify the
+                           code, if necessary, such that Vitis HLS can synthesize this top-level function into an RTL
+                           description. Make sure the vector dot product is a single, standalone C/C++ function that is
+                           side-effect free, i.e. any and all required inputs and outputs are passed as function
+                           parameters or return value as you proceed with the isolation. Note that while multiplications
+                           are integer only in the original llama.cpp code, these integer products are scaled by half-
+                           precision (FP16) values and then accumulated into a single 32-bit single-precision (FP32)
+                           value. To synthesize the design, we will use native floating-point datatypes available in Vitis
+                           (specifically, float and the half type from the Vitis HLS library in <hls_half.h>). Note
+                           that the floating-point IP that Vitis will generate does not handle denormalized values and
+                           so will always flush these to zero (floating point IP reference). You may find that this causes
+                           an unacceptable loss of accuracy, and if so, you may need to apply a workaround in your
+                           HLS code (e.g. to renormalize any denormalized floating point values.)
+                      b)     Develop a proper C/C++ testbench to test your standalone, dot product function with a
+                           range of inputs. This part is important and you should probably expand your testing to be
+                           more extensive compared to Part 3. For example – you can use the original C++ code as
+                           an automated checker that runs in parallel with your HLS code. Make sure to check various
+                           input ranges, corner-cases, etc. Your testbench should check the accuracy of hardware
+                           calculations, by recording and printing the maximum absolute error and relative
+                           (percentage) error.
+                      c)    (Extra credit). Floating point math is expensive in hardware, generating large IP blocks
+                           that consume area and power. As an optional task, convert your dot product to use fixed-
+                           point math wherever possible, which will synthesize simpler and more efficient hardware.
+
+
+
+https://users.ece.utexas.edu/~gerstl/ece382m_f26/labs/lab2.htm                                                               3/6
+11/18/26, 2:02 PM                                                    ECE382M.20: SoC, Lab 2
+
+
+
+
+                           Your dot product must ultimately still return a single precision floating point value back to
+                           llama.cpp, but you may perform the conversion either before or inside your function. Report
+                           your maximum absolute and relative errors for this implementation – how does this
+                           compare to the floating-point version? In the next part you can compare its power and area
+                           requirements.
+
+
+                5     Synthesizing the Dot Product Accelerator
+                We will now synthesize the standalone dot product functionality down to a cycle-by-cycle RTL
+                description:
+
+                      a) On an ECE-LRC machine, setup the Xilinx environment and launch Vitis HLS:
+                              % module load xilinx/2022
+                              % vitis_hls
+
+                      b) Create a new Vitis HLS project for your design with following settings:
+                            • Project name: hls_dot (or whatever you want)
+                            •     Location: wherever you want, but it is recommended that you create your projects
+                                 in your local scratch space under /misc/scratch/<your_username>/
+                            • Top Function: the name of your top-level dot product function
+                            • Design Files: add your design files that are supposed to be synthesized (no header
+                                 files, but .c or .cpp files).
+                            •      TestBench Files: add your testbench files and input data files for test. These files
+                                 are not synthesized.
+                            •      Solution Name: solution1 (or whatever you want). In a Vitis HLS project, you can
+                                 create multiple solutions, and each can have different synthesis options. And you
+                                 can compare the solutions in Vitis HLS environment.
+                            •      Clock Period: There is no requirement for this lab. A good starting point is 10 ns,
+                                 but the target clock should eventually be one of the parameters driving
+                                 optimizations.
+                            • Part Selection:
+                                    – Select: Parts -> Browse and select 'xczu3eg-sbva484-1-e’
+
+                      c)    In this lab, we will synthesize the core computational dot product kernel of our accelerator
+                           that will operate out of local accelerator memories and will later be combined (connected)
+                           with SRAMs and external bus interfaces to integrate it with the rest of the system. By
+                           default, Vitis HLS will synthesize any of your C function’s parameters that are specified as
+                           scalars or fixed-size arrays (e.g. int A[1024]) into ports of ap_none (register) and
+                           ap_memory (SRAM) interface type, respectively. If your dot product C function uses
+                           arguments of pointer type (int *A) or arrays of undefined size (e.g. int A[]), you will
+                           need to provide directives (either through pragmas in the code or via the Vitis HLS GUI).
+                           We strongly recommend explicitly defining pragmas for all function interfaces to specify the
+                           interface you wish to use (ap_none for registers, or bram for arrays to be stored in FPGA
+                           BRAMs). In the process, make sure to set the depth parameter to be equal to the size of
+                           the corresponding array or the co-simulation will fail, e.g.:
+
+                           #pragma HLS_INTERFACE port=A mode=bram depth=1024
+
+                           Generally, the interface pragma will govern synthesis and should consider the types of
+                           transactions you wish to use (simple, single word control signals vs. burst of data to be
+                           stored in FPGA memory).
+
+                      d)     Start from a default architectural constraint, i.e. don't specify any other architectural
+                           constraints (=synthesis directives) yet at this point. You will be exploring different
+                           architectural alternatives in the next part of this lab.
+
+                      e)     Click Project -> Run C simulation. Check the simulation log. A successful simulation will
+                           have a “*****CSIM finish*******” message in the end. Note the maximum absolute and
+                           relative errors – you can expect a nonzero error if small due to slight mismatches in
+                           floating-point computation. Later, when running within the full LLM you will be able to
+                           measure the impact of these errors on model performance. For now, ensure hardware error
+                           always stays less than 10%.
+
+
+
+https://users.ece.utexas.edu/~gerstl/ece382m_f26/labs/lab2.htm                                                             4/6
+11/18/26, 2:02 PM                                                     ECE382M.20: SoC, Lab 2
+
+
+
+
+                      f)   Select the top-level function in Project -> Project Settings -> Synthesis and run C synthesis.
+                           Discuss the results of the synthesis report that is automatically shown in Vitis HLS after
+                           synthesis.
+
+                      g)     Validate your RTL code running C/RTL co-simulation. Check the digital waveform and
+                           confirm the correct dot product operation.
+
+
+                6     Optimizing your Design
+                Freely explore at least 3 different architectural alternatives using various features offered by Vitis
+                HLS (e.g. loop unrolling, pipelining, memory optimizations, etc.) to come up with an area-
+                performance optimal design. Discuss your approaches to different solutions and compare them in
+                terms of various design metrics, i.e. area, latency, throughput, and operating clock frequency.
+
+
+                Lab Submission
+                Submit the following deliverable via Canvas:
+                   • A write-up in PDF format (Part 3, 5, and 6)
+                   • For Part 6, your write-up should cover:
+                             – Explanation of the approaches you have used for each solution.
+                             – Comparison of synthesis results.
+                             – Discussion of the results.
+                Submit deliverables for Parts 3, 4, 5, and 6 in Classroom 50 as described below:
+                   • All source code, scripts, generated Verilog and README files.
+                   • For Part 3, a directory named part3 in the lab-2 repository in Classroom 50 that includes
+                        the following:
+                             – A README file including how to compile, run and verify your design.
+                             – A Makefile or script to compile and/or run your code, if necessary.
+                             – All required C/C++ code (source file).
+                             –     Any golden input/output test files. Please keep the total size of these files to less
+                                 than 50MB.
+                   •     For Part 5, a directory named part5 in the lab-2 repository in Classroom50 containing the
+                        following:
+                             – A README file including information of how to compile and run your files in Vitis.
+                             – All required C or C++ code (source code and testbench files, as well as any header
+                                 files).
+                             – A write-up in the report briefly explaining how your RTL dot product works and how
+                                 you validated the RTL design. Note: the TA should be able to run your main
+                                 program and compare the results using the testbench you provide.
+                   • For Part 6, a directory named part6 in the lab-2 repository in Github Classroom. For each of
+                        your designs, create a subdirectory under part6 named design_<design_number> that
+                        includes the following files:
+                             – A README file including how to run and what to compare.
+                             – All required C or C++ code of the design.
+                             –     The directives.tcl files to synthesize/verify your designs. The directives.tcl file you
+                                 are required to submit is under the Solution_# directory. The TA should be able
+                                 to synthesize and verify all your designs. Place each .tcl file in its corresponding
+                                 subdirectory.
+                             – Generated Verilog code of the design.
+
+
+
+
+https://users.ece.utexas.edu/~gerstl/ece382m_f26/labs/lab2.htm                                                               5/6
+11/18/26, 2:02 PM                                                ECE382M.20: SoC, Lab 2
+
+
+
+
+https://users.ece.utexas.edu/~gerstl/ece382m_f26/labs/lab2.htm                            6/6
+

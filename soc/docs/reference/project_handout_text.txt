@@ -1,0 +1,138 @@
+11/18/26, 2:00 PM                                                         ECE382M.20: SoC, Project
+
+
+
+                                            System-on-Chip (SoC) Design
+                                                                ECE382M.20, Fall 2026
+
+                                                                    Class Project
+                                                                Due: December 8, 2026
+
+                Instructions:
+                      •   The project is a team exercise.
+                      •   Please use the discussion board on Ed for Q&A.
+                      •   We will have design reviews and final project presentations in class.
+                      •   Submit a copy of your final presentation slides on Canvas and your project code on
+                          Classroom 50 following the instructions below.
+                      •   Also submit an individual report on team member contributions throughout the class, i.e. a
+                          rating of your other team members across all labs and the project on Canvas.
+
+
+
+
+https://users.ece.utexas.edu/~gerstl/ece382m_f26/labs/project.htm                                                      1/5
+11/18/26, 2:00 PM                                                   ECE382M.20: SoC, Project
+
+
+
+
+https://users.ece.utexas.edu/~gerstl/ece382m_f26/labs/project.htm                              2/5
+11/18/26, 2:00 PM                                                   ECE382M.20: SoC, Project
+
+
+
+
+                1     Project Description
+                The class will be assigned to teams to do the various components of an industry-strength system
+                design. The intent of the project is to do a HW/SW co-design of an embedded SoC. The design is a
+                low-power, real-time SoC for executing and accelerating LLM inference workloads at the edge.
+                The platform will consist of an ARM processor, memory components, custom hardware
+                accelerators, etc. The ARM processor was chosen because it is used for a majority of the
+                components developed for the target market. The teams will be given a market requirements
+                document (MRD) and will then generate a product requirements document (PRD) which will be
+                used to complete the implementation of the llama.cpp design.
+                The project activities include:
+                   • Develop a PRD for the HW/SW implementation of the low-power SoC
+                   •       Profile different LLMs and choose one suitable for running basic tasks at the edge
+                        (example in Lab 1)
+                   • Profile the public domain software implementation to determine bottlenecks and optimize
+                        software performance (example in Lab 1)
+                   •     Partition the software into components which will run on the ARM processor and on the
+                        hardware accelerator (example in Lab 3)
+                   • Verify that the code maintains its target specification (example in Lab 1 and Lab 3)
+                   • Synthesize the hardware accelerator to RTL (example in Lab 2)
+                   • Prototype the hardware accelerator on the FPGA
+                   •     Establish proper communication between the software and hardware (example in Lab 3
+                        and the board tutorial below)
+                   •      Co-verify the prototype HW/SW implementation (example in Lab 3 and board tutorial
+                        below)
+                   • Develop a high-level performance and power model of the SoC
+                   • Estimate the timing, area and power consumption and validate product metrics described
+                        in the product MRD
+                The main tasks for the final part of the project are as follows:
+                   •     Integrate, optimize and prototype your edge LLM inference SoC on the ARM+FPGA
+                       board. You can come up with functions other than the dot product to accelerate in
+                       hardware. Please refer to profiling results and develop your own hardware accelerator, if
+                       you want to do so.
+                   •   Interface the hardware accelerator to the ARM processor, and develop and optimize the
+                       communication architecture
+                   •     Implement the remaining functionality on the ARM processor and interface the ARM
+                       software to the hardware accelerator prototype in the FPGA
+
+
+                2     Market Requirements Document (MRD)
+                We are targeting an ASIC implementation of the edge LLM SoC in 45nm or 32/28nm technology
+                that uses a single Arm A53 core running at 300MHz plus additional hardware accelerators.
+                The specific cost metrics for the project are:
+                   • Performance
+                            - Decode speed >= 0.5 token/s
+                            - Benchmark accuracy score >20.0
+                   • Area
+                            - 0.5mm² for accelerators
+                   • Power
+                            - Additional system power for accelerators < 100mW
+
+
+                3     Product Requirements Document (PRD)
+                Some PRD examples:
+                   • PRD Overview
+                   • IP Camera
+
+
+
+
+https://users.ece.utexas.edu/~gerstl/ece382m_f26/labs/project.htm                                                  3/5
+11/18/26, 2:00 PM                                                   ECE382M.20: SoC, Project
+
+
+
+
+                4     Prototyping Board
+                We are using an ARM- and FPGA-based development board for prototyping our ASIC SoC design:
+                   • Ultra96 development board tutorial
+
+
+                5     Submission
+                Your final project must be submitted via Classroom 50 before the deadline. Your submission must
+                include all of your (modified) llama.cpp code, any HLS/RTL files, and the FPGA bitstream and
+                hardware handoff (HWH) files.
+                The project will have a competitive component using an autograder that will determine the speed
+                and task accuracy of your design as compared against your classmates, using the benchmark
+                scripts provided in Lab 1. To check your score and compare it against other teams, simply
+                commit your latest design to the main branch of your Classroom 50 assignment (if you wish to
+                commit your design without grading, simply push to any other branch). To receive an autograded
+                score, your design must complete all benchmarks successfully, without timing out (i.e., complete
+                within 30 minutes). We will update and publish scores once per day (but multiple submissions per
+                day are still acceptable).
+                For the autograder, your design must be submitted as a modified llama.cpp repository with
+                additional Vivado files and a generated bitstream. Your repository must also include a
+                submission.json file in your top-level directory that specifies where to find your chosen LLM
+                (*.gguf) and bitstream (*.bit, *hwh) files, and that is required for the autograder to work
+                successfully.           An             example            is            available           at
+                /home/projects/gerstl/ece382m/project/submission.json on the LRC machines.
+                We have also provided a script which you may use to automatically generate this JSON file:
+                /home/projects/gerstl/ece382m/project/make_submission.py. The JSON schema
+                defining the file format and syntax (e.g. to check correctness against) is available at:
+                /home/projects/gerstl/ece382m/project/submission.schema.json.
+
+
+
+
+https://users.ece.utexas.edu/~gerstl/ece382m_f26/labs/project.htm                                                  4/5
+11/18/26, 2:00 PM                                                   ECE382M.20: SoC, Project
+
+
+
+
+https://users.ece.utexas.edu/~gerstl/ece382m_f26/labs/project.htm                              5/5
+

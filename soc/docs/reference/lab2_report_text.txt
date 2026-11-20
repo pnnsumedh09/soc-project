@@ -1,0 +1,440 @@
+              System-on-Chip (SoC) Design - LAB2
+
+TEAM 22 : Nirupama K Govindarajan ( nkg557 ), Sumedh Peyyeti ( np26753 ),
+Shreyas Sridhara ( ss236579 )
+
+
+Part 3 - Isolating the Vector Dot Product
+The ggml_vec_dot_q8_0_q8_0 function was isolated from llama.cpp along
+with the required Q8_0 data structures and FP16-to-FP32 conversion logic.
+A standalone C testbench containing 11 directed tests was created to verify
+the isolated implementation.
+
+         Test                             Description
+
+ Ones, (n=32)         Basic operation on one Q8_0 block
+
+ Ones, (n=4096)       Outer-loop execution and accumulation across 128
+                      blocks
+
+ (127 × 127)          Maximum positive int8_t values
+
+ (-128 × -128)        Minimum int8_t values producing a positive result
+
+ (127 × -128)         Mixed-sign extreme values
+
+ Ramp                 Different values at every position, from -16 to 15
+
+ Alternating signs    Exact cancellation of positive and negative products
+
+ Zero scale           Zero FP16 scale with nonzero quantized values
+
+ Mixed scales         Per-block positive, fractional, and negative scales
+
+ Denormal scale       Smallest FP16 subnormal scale
+Maximum scales        Maximum finite FP16 scales with the largest integer
+                      sum
+
+All 11 tests passed, confirming that the isolated implementation preserved
+the expected behavior.
+Part 4 - Creating Standalone, Synthesizable Code
+The standalone dot product function dot_q8_0 was created for Part 4 and
+here are the main changes compared to Part 3:
+
+  ●​ The original software interface was simplified to accept the number of
+     blocks and four typed input arrays.
+  ●​ The interleaved Q8_0 blocks were separated into quantized-value
+     arrays (xq, yq) and scale arrays (xd, yd).
+  ●​ Fixed maximum sizes of 4,864 elements and 152 blocks were defined
+     and inputs larger than this limit were clamped.
+  ●​ The Vitis half type and a fixed integer-based FP16-to-FP32
+     conversion were used to preserve normal and denormal FP16 values.
+  ●​ The outer and inner loops were labeled BLOCK_LOOP and
+     ELEM_LOOP for later optimization.
+
+The following HLS pragmas were added:
+#pragma HLS INTERFACE mode=bram port=xq depth=4864
+#pragma HLS INTERFACE mode=bram port=yq depth=4864
+#pragma HLS INTERFACE mode=bram port=xd depth=152
+#pragma HLS INTERFACE mode=bram port=yd depth=152
+#pragma HLS LOOP_TRIPCOUNT min=28 max=152
+
+The BRAM pragmas create memory interfaces for the quantized values
+and FP16 scales. The trip-count pragma gives Vitis the expected range of
+28 to 152 blocks, corresponding to vectors containing 896 to 4,864
+elements, so that latency can be estimated at both bounds.
+
+The Part 3 testbench was extended from 11 to 51 tests. Each test
+compares the synthesizable implementation against the isolated Part 3
+reference model.
+  Test category     Number                     Description
+                    of tests
+
+Directed tests     11          Basic operation, multiple blocks, signed
+from Part 3                    int8_t extremes, cancellation, and
+                               special FP16 scales
+
+Boundary           4           Zero blocks, maximum input length,
+conditions                     clamping above the maximum, and access
+                               to the final BRAM addresses
+
+Randomized       27            Vector lengths of 32, 896, and 4,864
+quantized inputs               elements at input magnitudes of (10^{-4}),
+                               0.02, and 1.0
+
+Outlier            3           Blocks containing individual values much
+distributions                  larger than the remaining inputs
+
+Sparse             3           Mostly zero-valued inputs, including
+distributions                  completely zero blocks
+
+Denormal-to-nor 3              FP16 scales spanning denormal and
+mal scale sweep                normal values
+
+Total              51
+
+
+
+
+Handling FP16 Denormal Values
+Vitis floating-point IP flushes denormalized FP16 values to zero. This
+affected tests in which the scale factors for both input vectors were
+denormal. In these cases, the hardware result became zero while the
+reference result remained nonzero, producing a relative error of:
+Before applying a workaround, 13 of the 51 tests failed, with a maximum
+absolute error of (6.683066 * 10^(-5)) and a maximum relative error of
+100%. The absolute error remained small because the affected
+denormal-scale results were themselves very small.
+
+
+
+
+To preserve denormal values, we implemented a workaround. When a
+denormal is detected, its mantissa is shifted until the leading one reaches
+the implicit-bit position, and the FP32 exponent is adjusted accordingly. A
+fixed four-step leading-zero count is used instead of a data-dependent
+loop, keeping the conversion synthesizable.
+
+
+
+
+After applying this workaround, all 51 tests passed bit-exactly and both the
+maximum absolute and relative errors were reduced to zero.
+Part 5 - Synthesizing the Dot Product Accelerator
+The design was synthesized using a target clock period of 10 ns. Here are
+the results from the synthesis report:
+
+                       Metric                        Result
+
+                 Target clock period               10.000 ns
+
+               Estimated clock period               6.792 ns
+
+                    Timing slack                    0.508 ns
+
+              Latency for 896 elements             472 cycles
+
+             Latency for 4,864 elements           2,456 cycles
+
+           BLOCK_LOOP initiation interval          16 cycles
+
+                     DSP usage                         21
+
+                     LUT usage                       3,018
+
+                      FF usage                       1,176
+
+               Reported BRAM usage                      0
+
+Vitis automatically pipelined BLOCK_LOOP, but achieved an initiation
+interval of 16 cycles rather than the target of one. This is primarily caused
+by the two read ports available on each BRAM interface: reading the 32
+elements required for one Q8_0 block takes at least 16 cycles. The
+reported BRAM usage is zero because the arrays are exposed as external
+BRAM interfaces instead of being instantiated inside the synthesized
+module.
+
+C/RTL co-simulation passed all 51 tests bit-exactly, with zero maximum
+absolute and relative error. We verified dot product operation on the
+waveform, here is the screenshot:
+We manually calculated the dot product using the input values shown in the
+waveform and verified that it matched the final output, 0xB20D1CB0, when
+ap_done was asserted.
+
+Extra Credit
+For the extra-credit implementation, the dot-product calculations were
+converted to fixed-point arithmetic. To reduce the maximum relative error
+below the required 10%, the inputs were represented using 76 bits, with 34
+integer bits, while the accumulator used 102 bits, with 60 integer bits. The
+accumulated fixed-point result was then converted back to a
+single-precision floating-point value at the function output.
+
+ Accuracy metric             Result
+
+Maximum absolute (4.577637 * 10^(-5))
+error
+
+Maximum relative      5.622120%
+error
+
+Bit-exact results     25 of 51
+Although 10 tests exceeded the stricter tolerance used by our testbench,
+the maximum relative error remained below the 10% requirement specified
+by the lab.
+
+
+
+
+The large fixed-point widths also increased hardware utilization compared
+with the original floating-point implementation.
+
+ Resource          Floating-point        Fixed-point
+
+DSP           21                    32
+
+LUT           3,018                 4,157
+
+FF            1,176                 1,431
+
+
+
+
+Compared with the floating-point implementation, which produced zero
+absolute and relative error, the fixed-point implementation introduced a
+maximum relative error of 5.62% while consuming more DSPs, LUTs, and
+FFs. Fixed-point arithmetic is therefore hardware-efficient only when the
+data has a relatively narrow dynamic range. For this llama.cpp workload,
+supporting the extreme input range requires very wide fixed-point values,
+making the resulting design less area-efficient than the floating-point
+implementation.
+Part 6 - Optimizing the Design
+To optimize our design, we explored the following four optimizations
+provided by Vitis HLS:
+
+   ●​ Loop Unrolling
+   ●​ Pipelining
+   ●​ Array Partitioning
+   ●​ Array Reshaping
+
+In our design, BLOCK_LOOP is the outer loop that iterates over the Q8_0
+blocks, while ELEM_LOOP is the inner loop that computes the dot product
+within each block. These loop names are references in further sections.
+
+Since the number of blocks is provided at runtime, we provided Vitis with an
+expected range of 28 to 152 iterations, corresponding to 896 and 4,864
+elements. The following tables report latency at both bounds to show how
+each optimization scales with input length.
+
+Here is our analysis of each optimization and its effect on performance:
+
+1. Loop Unrolling
+Loop unrolling was applied to ELEM_LOOP. We evaluated three
+configurations with unroll factors of 8, 16, and 32.
+
+These commands were used for the unroll factor 8 configuration:
+
+config_compile -pipeline_loops 0
+set_directive_unroll -factor 8 "dot_q8_0/ELEM_LOOP"
+
+The same commands were used for the other two configurations by
+changing the argument from 8 to 16 and 32. Since the Vitis default
+configuration enables pipelining on the outer loop, it unrolls the inner loop
+completely. The config_compile -pipeline_loops 0 command disables
+automatic loop pipelining, allowing us to analyse the effect of unrolling.
+An unroll factor of 8 executes eight iterations of ELEM_LOOP in parallel,
+while a factor of 16 doubles that parallelism. Since the loop has 32
+iterations, a factor of 32 fully unrolls it, allowing all element wise
+multiplications to be executed in parallel. The actual performance
+improvement still depends on the available memory bandwidth.
+
+Unrolling results
+
+   Config       Unroll     Latency for    Latency for    DSP     LUT     FF
+                factor         896           4864
+                            elements       elements
+
+     No             None      4,929          26,753        6    1,183 600
+ optimization
+
+   Partial           8        1,121          6,081         9    1,579 645
+  unrolling
+
+   Partial           16       1,009          5,473        13    1,988 750
+  unrolling
+
+    Full             32        869           4,713        21    2,914 905
+  unrolling
+
+Increasing the unroll factor consistently reduced latency, but the
+improvement became smaller at larger unroll factors. We can also observe
+the area performance tradeoff at larger unroll factors.
+
+2. Pipelining
+Pipelining was evaluated using the default Vitis optimization configuration.
+Unlike the unrolling configurations, automatic loop pipelining was not
+disabled. With its default settings, Vitis automatically pipelines
+BLOCK_LOOP and fully unrolls ELEM_LOOP.
+The resulting outer-loop initiation interval was 16 cycles. Pipelining allows
+operations of consecutive Q8_0 blocks to overlap rather than waiting for all
+operations associated with one block to finish before starting the next.
+
+Pipelining results
+
+   Config        Latency for   Latency        Loop     DSP      LUT      FF
+                     896       for 4864     initiation
+                  elements     elements      interval
+
+     Full            869         4,713         Not       21    2,914     905
+  unrolling                                 pipelined
+   without
+  pipelining
+
+ Vitis default       472         2,456          16       21    3,018    1,176
+  pipelining
+
+Pipelining reduced the 896 element latency from 869 to 472 cycles and the
+4,864 element latency from 4,713 to 2,456 cycles. As expected, additional
+control and pipeline registers caused a small increase in LUT and FF
+usage.
+
+3. Array Partitioning
+The arrays are initially mapped to BRAM interfaces in dot_q8_0.cpp:
+
+#pragma HLS INTERFACE mode=bram port=xq depth=4864
+#pragma HLS INTERFACE mode=bram port=yq depth=4864
+#pragma HLS INTERFACE mode=bram port=xd depth=152
+#pragma HLS INTERFACE mode=bram port=yd depth=152
+
+The quantized arrays xq and yq require multiple reads per cycle to supply
+the unrolled datapath. By default, each array provides two read ports. To
+increase the available memory bandwidth, each quantized array was
+cyclically partitioned into two banks.
+The following directives were added to directives.tcl:
+
+set_directive_array_partition \
+  -type cyclic -factor 2 -dim 1 \
+  "dot_q8_0" xq
+
+set_directive_array_partition \
+  -type cyclic -factor 2 -dim 1 \
+  "dot_q8_0" yq
+
+A cyclic partition factor of two distributes alternating array elements
+between two memory banks. Since each bank can provide two ports, the
+accelerator receives four aggregate read ports for xq and four for yq.
+
+Array-partitioning results
+
+  Config     Read    Loop     Latency        Latency     DSP    LUT      FF
+             ports initiation for 896        for 4864
+                    interval elements        elements
+
+  Default      2         16         472        2,456      21    3,018 1,176
+  BRAM
+interfaces
+
+  Cyclic       4         8          242        1,234      21    2,750 1,168
+ partition
+   by 2
+
+Doubling the available read bandwidth reduced the initiation interval from
+16 to 8. As a result, the latency was reduced by approximately half for both
+evaluated vector lengths.
+
+Increasing the number of memory banks should normally increase BRAM
+usage and total area. However, this increase is not visible in the reported
+BRAM count because the current synthesis scope treats these arrays as
+external BRAM interfaces.
+4. Array Reshaping
+Array reshaping changes the width of each memory word so that several
+adjacent int8_t elements can be read in one access. We evaluated three
+configurations with reshape factors of 8, 16, and 32.
+
+The following directive was used for the reshape factor 8 configuration:
+
+set_directive_array_reshape -type cyclic -factor 8 -dim 1 "dot_q8_0" xq
+set_directive_array_reshape -type cyclic -factor 8 -dim 1 "dot_q8_0" yq
+
+The same directives were used for the other two configurations by
+changing the factor argument from 8 to 16 and 32.
+
+A reshape factor of 8 packs eight signed 8-bit elements into 64-bit memory
+word. Factors of 16 and 32 produce 128-bit and 256-bit words, respectively.
+The factor 32 configuration therefore provides all 32 quantized values
+associated with one Q8_0 block through a wide memory interface.
+
+Array-reshaping results
+
+Reshape Block-        Latency      Latency     DSP      LUT        FF
+ factor loop II       for 896     for 4864
+                     elements     elements
+
+    8         4         130          626        21     2,314     1,281
+
+    16        4         130          626        21     2,237     1,385
+
+    32        4         130          626        21     2,228     1,385
+
+All three reshape factors produced an initiation interval of four cycles and
+identical latency, so reshaping beyond a factor of eight provided no
+additional performance improvement. One possible limitation is that the
+reshaped arrays still use the default two-port BRAM interface, since array
+partitioning was not combined with reshaping in these configurations.
+Overall Performance and Area Comparison
+
+
+
+
+The performance graph shows how loop unrolling, pipelining, array
+partitioning and array reshaping affect latency. By default, Vitis pipelines
+the outer loop and fully unrolls the inner loop. Building on this configuration,
+reshaping the arrays by a factor of eight produced the lowest latency. We
+refer to this combination as the Optimized Reshape-8 configuration
+throughout the following analysis.
+
+The area graph illustrates the trade-off between performance and hardware
+cost. As performance improved through these optimizations, LUT and FF
+usage generally increased because additional parallel hardware and
+control logic were required. Among the configurations evaluated, the
+Optimized Reshape-8 configuration provided the best balance between
+performance and area.
+
+All configurations in this comparison were synthesized using a target clock
+period of 10 ns. For the clock-optimization analysis, we therefore select the
+Optimized Reshape-8 configuration and evaluate it across a range of target
+clock periods.
+
+To optimize the operating frequency, the best-performing configuration was
+synthesized using target clock periods from 7 ns to 11 ns in 0.5 ns
+increments. The results of this sweep are shown in the following table:
+
+  Target          Clock      Slack   Loop    Time for 896     Time for 4,864
+period (ns)    frequency      (ns)     II    elements (µs)    elements (µs)
+                  (MHz)
+
+    7.0          142.9       0.140     7         1.526            7.602
+
+    7.5          133.3       0.011     6         1.425            7.005
+
+    8.0          125.0       0.098     6         1.512            7.464
+
+    8.5          117.6       0.148     5         1.352            6.622
+
+    9.0          111.1       0.063     4         1.179            5.643
+
+    9.5          105.3       0.138     4         1.235            5.947
+
+    10.0         100.0       0.508     4         1.300            6.260
+
+    10.5          95.2       0.868     4         1.365            6.573
+
+    11.0          90.9       0.313     4         1.430            6.886
+
+
+As the target period decreases below 9 ns, Vitis increases the loop II to
+satisfy the tighter timing constraint. This increases the number of execution
+cycles, offsetting the benefit of the higher clock frequency. Above 9 ns, the
+II remains at four, but each cycle becomes longer. Therefore, a 9 ns target
+period, corresponding to 111.1 MHz, provides the lowest execution time for
+both input sizes while maintaining positive slack.
+

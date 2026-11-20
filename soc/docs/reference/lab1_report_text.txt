@@ -1,0 +1,441 @@
+                     System-on-Chip (SoC) Design
+                                   ECE382M.20, Fall 2026
+
+                                           Lab #1
+   Group 22: Sumedh Peyyeti, Shreyas Sridhara, Nirupama Govindarajan
+
+Part 1: Benchmarking LLMs
+
+
+1.1 Qwen2.5-0.5B Results:
+
+Overall accuracy score (%): 51.4
+Speed: 5.81 tokens/sec
+
+
+1.2 Overall Results:
+
+
+
+
+1.3 LLM Benchmarking Observations and Comparison:
+
+We tried to do some ablation studies, comparing to see the effects of individual parameters
+
+   1.​ Attention grouping: Qwen1.5-0.5B (MHA) vs Qwen2.5-0.5B (GQA)
+
+       Both models have 24 layers, head_dim 64, vocab 151,936, and Q8_0 quantization.
+
+       We are varying KV heads from 16 to 2 (8× KV cache reduction). Also, d_model from
+       1024 to 896, FFN from 2816 to 4864, and training data.
+       Metric (Attention)           Speed                           Accuracy
+
+       MHA (16 KV)                  5.98 tok/s                      25.7
+
+       GQA (2 KV)                   5.81 tok/s                      51.4
+
+
+
+      Inference:
+
+      Both models output roughly 5.8 to 5.9 tokens/s, indicating their base parameter loads
+      bottleneck the hardware equally. Grouped-Query Attention (GQA) reduces KV-cache
+      bandwidth pressure, which theoretically speeds up generation. However, the throughput
+      remains virtually identical (5.98 vs 5.81). This indicates that at the 0.5B scale, the
+      primary hardware bottleneck is fetching the core FFN/Attention weights, not managing
+      the KV cache. The 100% accuracy jump is attributed to a more evolved Qwen2.5 model.
+
+      As we try to look at the architecture of Qwen1.5 vs Qwen2.5
+
+
+
+
+Qwen 1.5 0.5B Model Architecture
+Qwen 2.5 0.5B Model Architecture
+
+Qwen2.5 model is more accurate than the Qwen1.5 model, attributable to the benefits of using
+more weights in the FFN/Matmul layer than in the attention layer.
+
+   2.​ Vocabulary size and LM-Head Overhead: Llama-3.2-1B vs. TinyLlama-1.1B
+
+
+        Metric (Vocabulary size)     Speed                        Accuracy
+
+        32k                          3.05 tok/s                   11.6
+
+        128k                         1.71 tok/s                   59.8
+
+
+
+The contrast between Llama-3.2-1B (1.71 tok/s) and TinyLlama-1.1B (3.05 tok/s) isolates the
+cost of vocabulary size.
+
+Both models are in the 1B+ param size. Despite Llama-3.2 using GQA (which normally speeds
+up inference), it generates text almost half as fast as TinyLlama.
+This bottleneck stems from Llama-3.2's massive 128k vocabulary matrix. During the final
+projection phase, the CPU must fetch and multiply against a significantly larger tensor than
+TinyLlama's standard 32k vocabulary. This throttles throughput significantly.
+
+While this heavily thrashes the cache and throttles throughput, it pays off in accuracy: Llama-3.2
+correctly follows formatting constraints (IFEval) and logic tasks (ARC), whereas TinyLlama
+performs poorly.
+
+   3.​ Pure Parameter Scaling
+
+We chose the LFM2 family as it gives us a chance to study network depth and width (L * dmodel)
+while holding the other underlying architectural parameters constant.
+
+
+
+
+ Metric (parameters)             Speed                            Accuracy
+
+ 350M                            8.22 tok/s                       48.4
+
+ 700M                            4.34 tok/s                       57.9
+
+ 1.2B                            2.89 tok/s                       64.5
+
+
+
+
+Moving from 350M to 700M (2x parameters) results in a 1.89x drop in throughput (8.22 to 4.34
+tok/s). Scaling to 1.2B (approx. 3.4x parameters) yields a 2.84x drop (8.22 to 2.89 tok/s). This
+near-linear degradation confirms that inference is strictly memory-bound.
+
+Execution time scales proportionally with the DRAM fetches required to load the static weights.
+Accuracy follows a logarithmic return curve (48.4 -> 57.9 -> 64.5). However, accuracy yields
+diminishing returns, as we are moving from 700M to 1.2B costs 33% of the remaining speed but
+only yields a 6.6-point accuracy gain.
+
+Overall, throughput decays sub-linearly with parameters, and the gain is saturating.
+   4.​ Sub-400M Compute Efficiency
+
+A direct comparison of the two smallest models reveals how intermediate layer dimensions
+affect both speed and capability.
+
+
+
+        Metric (Intermediate layer           Speed                   Accuracy
+        dimensions)
+
+        SmolLM2-360M                         6.96 tok/s              22.8
+
+        LFM2-350M                             8.22 tok/s             48.4
+
+
+
+LFM2-350M achieves an 18% speed advantage and a 112% accuracy advantage over
+SmolLM2. At these smaller memory scales, temporal locality in the L2 cache becomes a factor.
+LFM2's specific layer scaling (we think it’s most likely deeper but narrower intermediate FFN
+layers compared to SmolLM2) maps more efficiently to the ARM processor's physical cache
+lines, maximizing both arithmetic intensity and reasoning capability before hitting the DRAM
+wall.
+
+Overall Observations:
+
+   ●​ The benchmark experiments show that model size strongly controls decoding throughput
+      on the Ultra96, with tokens/s scaling approximately inversely with parameter count.
+   ●​ Accuracy depends more strongly on model family and training than on parameter count
+      alone.
+   ●​ The LFM2 family performs the best overall, with LFM2-700M providing the strongest
+      balance and LFM2-1.2B providing the highest aggregate accuracy.
+   ●​ HellaSwag favors Llama-3.2 and Qwen2.5, ARC-Easy scales strongly with LFM2 size,
+      and IFEval favors models with effective instruction tuning.
+   ●​ GQA and hybrid attention substantially reduce KV-cache memory, although their
+      throughput benefit is less visible in these short-context measurements.
+                                      Part 2: Quantization
+
+2.1 Quantization
+
+Symmetric quantization and asymmetric quantization are the common approaches used to
+represent quantized values.
+
+Symmetric quantization maps the floating point values to an integer range centered around
+zero. It uses a scale factor to map the largest magnitude value to the available integer range.
+The quantization and dequantization operations are given by
+
+
+
+
+where (r) is the original value and (s) is the scale. Since the range is centered around zero,
+symmetric quantization does not require a zero-point. It is commonly used for neural network
+weights.
+
+Asymmetric quantization allows the quantized range to be shifted relative to zero and so it will
+have both scale and zero point. The quantization and dequantization operations are
+
+
+
+
+where (z) is the zero-point. The zero-point allows the quantized range to better match the
+minimum and maximum values of the original tensor. This can be useful when the values are
+not distributed symmetrically around zero.
+
+Each of these quantizations can differ in the granularity and the bit width of the values. In
+per-tensor quantization, one scale is used for the entire tensor. Per-channel and per-group
+quantization use separate scaling factors for smaller portions of the tensor. Finer-grained
+quantization can better represent variations in the weight distribution, but requires additional
+scaling information.
+
+Common weight precisions include 2-bit, 3-bit, 4-bit, 5-bit, 6-bit, and 8-bit. Lower bit-widths
+provide greater compression but come with the cost of losing accuracy. There will be a
+quantization error because the actual values are reduced to less number of bits. The higher the
+bit-width, the more information it will have and introduces less quantization error.
+
+The quantized values are typically stored in blocks along with their scaling information. For
+example, with 4-bit quantization, two 4-bit values can be packed into a single byte. During
+computation, the packed values are extracted and combined with their corresponding scales to
+approximate the original values. This allows the weights to remain compressed in memory
+instead of storing the full-precision tensor.
+
+2.2 Quantization formats in Llama.cpp
+
+Llama.cpp supports several weight quantization formats, including Q4_0, Q5_0, Q8_0 and the
+K-quant family Q2_K, Q3_K, Q4_K, Q5_K, and Q6_K. The main difference between these
+formats is the number of bits allocated to the quantized weights and the block structure used to
+store the associated scaling information.
+
+The simpler _0 formats use block-wise quantization with a common scale for each block. The
+K-quant formats use larger super blocks containing smaller blocks and additional scaling
+information. This provides more flexibility in representing the distribution of the original weights,
+particularly at lower bit-widths.
+
+ Format           Nominal            Approx. bits/weight
+                 bits/weight
+
+  Q4_0                4                       4.5
+
+  Q5_0                5                       5.5
+
+  Q8_0                8                       8.5
+
+  Q2_K                2                      ~2.6
+
+  Q3_K                3                      ~3.4
+
+  Q4_K                4                      ~4.5
+
+  Q5_K                5                      ~5.5
+
+  Q6_K                6                      ~6.6
+
+For example, Q8_0 represents groups of 32 weights using 8-bit quantized values together with
+an FP16 scale. Lower-bit formats pack the quantized values more densely and store additional
+scaling information alongside them. During a matrix operation, Llama.cpp's optimized kernels
+extract the packed values and apply the corresponding scales as part of the computation.
+
+2.3 Weights, KV cache, and activations
+
+Quantization is not applied uniformly to every tensor in the Llama.cpp computation graph. The
+model weights are the primary target of quantization and can remain stored in compressed
+GGUF formats such as Q4_K, Q5_K, Q6_K, or Q8_0.
+
+The KV cache is handled separately and can use floating-point representations such as FP16,
+along with other supported cache types. Intermediate activations are also not automatically
+stored at the same precision as the quantized weights. Depending on the operation and
+backend, intermediate tensors can use higher-precision floating-point representations.
+
+Conceptually, the data path can be viewed as:
+
+Quantized weights → Matrix operations → Intermediate values → Attention/KV cache →
+Next layer
+
+Therefore, a model described as Q4 or Q8 refers primarily to the representation of its weights. It
+does not mean that all intermediate values throughout the computation graph are stored at the
+same bit-width.
+
+2.4 Effect of precision on accuracy
+
+The main source of accuracy loss is the approximation introduced when floating-point values
+are mapped to a limited set of quantized values. Lower bit-widths provide greater compression
+but generally introduce more quantization error. Finer-grained scaling and more structured
+formats can reduce this error by representing different value distributions more accurately.
+
+Overall, quantization provides a trade-off between memory footprint, memory bandwidth, and
+numerical accuracy. Higher precision retains more information but requires more memory, while
+lower precision provides greater compression at the cost of increased approximation error.
+
+2.5 Benchmark Results for different quantization levels:
+
+ Quantization         Throughput              Benchmark Score
+ Level                (tok/s)                 (/100)
+
+
+
+ Q8_0                 5.81                    51.4
+
+
+
+ Q4_K_M               5.14                    54.3
+
+
+
+ Q2_K                 5.61                    48.1
+2.6 Analysis of quantization benchmark results:
+
+Throughput
+
+We expected lower precision models to run faster due to reduced memory transfers, but Q8_0
+was actually the fastest at 5.81 tok/s, followed by Q2_K at 5.61 tok/s and Q4_K_M at 5.14 tok/s.
+
+These factors explain this throughput behavior:
+
+   ●​ K-quant formats like Q4_K_M and Q2_K use complex block structures that require extra
+      CPU bit-shifting and unpacking operations to extract weights during execution. On our
+      300 MHz Cortex-A53 core, this extra arithmetic overhead is possibly the reason
+      execution slows down and outweighs the time saved on memory transfers.
+   ●​ Q2_K runs slightly faster than Q4_K_M because its significantly smaller model size in
+      memory helps offset part of this bit-unpacking cost, placing its overall speed between
+      Q8_0 and Q4_K_M.
+
+Accuracy
+
+In accuracy, Q4_K_M achieved a score of 54.3, Q8_0 scored 51.4, and Q2_K dropped to 48.1.
+
+Even though Q8_0 uses higher precision, Q4_K_M has better accuracy. This is likely due to
+how K-quant formats work. Instead of quantizing every layer uniformly like Q8_0, Q4_K_M uses
+variable precision across different model layers to keep important tensors at higher quality,
+which helps maintain overall accuracy. Small prompt-level variations in the evaluation tasks
+could also be a factor.
+
+The drop to 48.1 for Q2_K shows the limit of aggressive quantization. Squeezing weights down
+to 2 bits introduces enough quantization noise to noticeably degrade model reasoning.
+                            Part 3: Optimization features
+
+3.1 Optimization features overview
+
+The Ultra96 platform has a Xilinx Zynq UltraScale+ MPSoC equipped with a quad-core ARM
+Cortex-A53 processor. The primary optimization knobs are available on the hardware side of
+things as well as in compiler configuration and runtime execution.
+
+   1.​ ARM NEON Advanced SIMD Vectorization:
+
+               The ARMv8-A architecture features dedicated 128-bit vector execution units and
+       vector registers (v0–v31). In llama.cpp, matrix multiplication kernels such as
+       ggml_vec_dot_q8_0 use SIMD intrinsics to process multiple 8-bit integer operations
+       concurrently per instruction instead of using scalar execution loops.
+
+   2.​ Microarchitectural Instruction Scheduling (-mcpu=cortex-a53):
+
+               The Cortex-A53 is an in-order, dual-issue superscalar pipeline. Directing GCC to
+       target -mcpu=cortex-a53 rather than a generic baseline (-march=armv8-a)
+       activates instruction scheduling tailored to the Cortex-A53’s dual-issue hazard tables and
+       load-to-use latencies, reducing structural pipeline stalls.
+
+   3.​ Multi-Core Thread Parallelism (--threads N):
+
+              The MPSoC contains four symmetric Cortex-A53 physical cores running at up to
+       1.2 GHz. At runtime, llama.cpp can partition the rows and weight tiles of tensor
+       operations across independent POSIX threads mapped across the available CPU cores.
+
+3.2. Experimental Setup: How Optimizations Were Controlled
+To isolate and profile these features on the Ultra96 board using Qwen2.5-0.5B (Q8_0), three
+controlled configurations were tested using benchmark.py:
+
+   1.​ Config A (Scalar Baseline / No-NEON, 4 Threads):​
+       Built on mario with -U__ARM_NEON -fno-tree-vectorize -DGGML_NEON=OFF
+       -DGGML_LLAMAFILE=OFF. This forces llama.cpp to disable ARM NEON intrinsic code
+       paths and suppresses GCC auto-vectorization, falling back to a scalar
+       1-byte-at-a-time loop for tensor dot products while retaining 4 worker threads.
+   2.​ Config B (Tuned Microarchitecture & NEON, 1 Thread):​
+       Built on mario targeting -mcpu=cortex-a53 -O3 -DNDEBUG with full NEON
+       vectorization enabled. Tested on the board using runtime flag --threads 1 to establish
+       a single-core baseline with vectorization active.
+   3.​ Config C (Tuned Microarchitecture & NEON, 4 Threads):​
+       Built on mario targeting -mcpu=cortex-a53 -O3 -DNDEBUG with full NEON
+       vectorization enabled. Tested on the board using runtime flag --threads 4 to assess
+       full multi-core parallel scaling.
+
+3.3 Empirical Observations
+
+The following performance and accuracy metrics were collected running benchmark.py across
+ARC-easy, Hellaswag, and IFEval datasets:
+
+
+
+
+ Configuration                        Threads       Throughput        Benchmark Score
+
+
+
+ Baseline (Toolchain Default)         4             5.81 tok/s        51.4 / 100
+
+
+
+ NONEON (SIMD Disabled)               4             1.47 tok/s        52.3 / 100
+
+
+
+ A53-1Thread (SIMD Enabled)           1             1.72 tok/s        51.4 / 100
+
+
+
+ A53 (Cortex-A53 Optimized)           4             5.83 tok/s        51.4 / 100
+
+
+
+
+3.4 Analysis
+
+The benchmark results highlight how vectorization and thread count drive execution speed on
+the Ultra96 board. Comparing the standard baseline (5.81 tok/s) to the NONEON run (1.47
+tok/s) shows that turning off ARM NEON SIMD causes a massive drop in speed, making
+execution nearly 4 times slower. This proves that vector instructions are essential for processing
+tensor math efficiently on this board.
+
+Thread count also plays a major role in overall speed. Running the Cortex-A53 build on a single
+thread yields only 1.72 tok/s, but scaling up to 4 threads increases speed to 5.83 tok/s (a 3.39x
+parallel speedup). Adding the specific CPU compiler flag (-mcpu=cortex-a53) gives a slight
+extra boost over the default toolchain baseline, pushing speed from 5.81 tok/s to 5.83 tok/s due
+to better instruction scheduling. Across all four test cases, the benchmark accuracy score
+remains effectively identical (~51.4 to 52.3), showing that these performance gains come with
+no loss in model accuracy.
+
+
+
+
+                              Part 4: Profiling llama.cpp
+
+Profiling llama-cli on a single Cortex-A53 CPU core running at 300 MHz resulted in a total
+execution time of 145.12 seconds.
+
+
+
+
+Primary Bottleneck
+
+   1.​ Quantized Vector Dot Product (ggml_vec_dot_q8_0_q8_0):
+
+              This part was the primary bottleneck which took 89% of the compute time which
+       is around 130s out of 145s. This computes dot products for 8-bit quantized integer
+       tensors. Executing over 25.4 million calls on the 300 MHz CPU core makes this single
+       arithmetic routine the primary performance bottleneck.
+
+Secondary Functions (10.18% Total)
+
+   1.​ Graph Dispatch & Attention (2.21%):
+
+              Matrix multiplication graph dispatch (ggml_compute_forward_mul_mat) and
+       FlashAttention passes (ggml_compute_forward_flash_attn_ext).
+
+   2.​ Tokenization & Setup (2.75%):
+
+               Vocabulary loading (llama_vocab::impl::load) and Byte-Pair Encoding string hash
+       table lookups during initialization.
+
+   3.​ Other Compute & I/O (5.22%):
+             Minor vector math (ggml_vec_swiglu_f32, FP16 dot products), memory cleanup,
+       and GGUF file I/O.
+
+Overall, non-computational tasks like file I/O, string parsing, memory allocation, and tokenization
+collectively account for less than 5 percent of total runtime. CPU execution time is almost
+entirely consumed by low-level quantized vector math in the ggml_vec_dot_q8_0_q8_0
+kernel. From our profiling results, we understood how critical accelerating this dot product
+function is to overall performance. Because of this, most of our hardware acceleration efforts on
+the FPGA will focus on offloading this specific routine. Once this primary bottleneck is solved,
+we will look into optimizing secondary functions from the remaining 10 percent, such as matrix
+multiplication dispatch and FlashAttention . We can optimize these secondary tasks on the CPU
+using techniques like ARM NEON SIMD vectorization, instruction pipelining and memory layout
+adjustments.
+

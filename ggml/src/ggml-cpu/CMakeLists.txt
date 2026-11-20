@@ -719,6 +719,14 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
     target_compile_options(${GGML_CPU_NAME} PRIVATE ${ARCH_FLAGS})
     target_compile_definitions(${GGML_CPU_NAME} PRIVATE ${ARCH_DEFINITIONS})
 
+    # ECE382M SoC project: GEMV offload hook (soc/sw/gemv). Off by default; enable with -DGGML_SOC_GEMV=ON
+    if (GGML_SOC_GEMV)
+        if (NOT GGML_SOC_DIR)
+            set(GGML_SOC_DIR "${CMAKE_SOURCE_DIR}/soc")
+        endif()
+        include("${GGML_SOC_DIR}/sw/gemv/ggml-soc-gemv.cmake")
+    endif()
+
     if (EMSCRIPTEN)
         set_target_properties(${GGML_CPU_NAME} PROPERTIES COMPILE_FLAGS "-msimd128")
     endif()
