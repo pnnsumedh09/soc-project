@@ -25,11 +25,20 @@ proc add_files {args} {
     if {[file pathtype $path] ne "absolute" || ![file isfile $path]} {
         error "Missing or relative source path: $path"
     }
+    if {[file extension $path] eq ".c"} {
+        error "Registering a C source exposes it to apcc's C++ options"
+    }
 }
 foreach cmd {set_top open_solution set_part create_clock set_directive_interface} {
     proc $cmd {args} {}
 }
-proc csim_design {} { set ::ran_csim 1 }
+proc csim_design {args} {
+    if {[llength $args] != 2 || [lindex $args 0] ne "-ldflags" ||
+        ![file isfile [lindex $args 1]]} {
+        error "C simulation must link the separately compiled C reference object"
+    }
+    set ::ran_csim 1
+}
 foreach cmd {csynth_design cosim_design export_design} {
     proc $cmd {args} { error "Unexpected vendor stage in csim-only test" }
 }
@@ -39,4 +48,16 @@ source $script
 if {!$ran_csim || [lsort $fp_options] ne {-no_signed_zeros=false -unsafe_math_optimizations=false}} {
     error "Missing C simulation dispatch or strict FP options"
 }
+set ::env(SOC_GEMV_HW_STAGE) cosim
+set ran_cosim 0
+proc csynth_design {args} {}
+proc cosim_design {args} {
+    set index [lsearch -exact $args -ldflags]
+    if {$index < 0 || ![file isfile [lindex $args [expr {$index + 1}]]]} {
+        error "RTL co-simulation must link the compiled C reference too"
+    }
+    set ::ran_cosim 1
+}
+source $script
+if {!$ran_cosim} { error "Missing RTL co-simulation dispatch" }
 puts "HLS script regression: PASS (vendor commands mocked)"

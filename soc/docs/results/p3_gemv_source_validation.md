@@ -43,3 +43,11 @@ No Vivado design, bitstream, FPGA backend integration, real GEMV throughput or A
 Sumedh's first Vitis HLS 2022.2 run reached solution setup but failed before C simulation: `config_compile -unsafe_math_optimizations false` treated the separate `false` token as an unknown option. The tool's help specifies the `-option[=true|false]` form. Corrected both FP options to `-unsafe_math_optimizations=false` and `-no_signed_zeros=false`.
 
 Added `test_hls_script.tcl` and `make script-test`: the local mocked check rejects the exact old syntax, accepts both corrected options, verifies source paths and reaches csim-only dispatch. It passes. This does not constitute vendor-tool validation; the actual Vitis rerun is pending. Kernel arithmetic and previously passed native numerical tests are unchanged.
+
+## Mixed-language apcc compilation fix: 2026-11-20
+
+The next LRC attempt accepted both corrected Boolean options but failed while compiling the registered C reference with apcc: `invalid argument '-std=c++11' not allowed with 'C/ObjC'`. The testbench did not execute. This is a build-language failure, not a reported numerical mismatch.
+
+The HLS script now compiles the unchanged `soc_repack.c` explicitly as C11 with native host `cc` and contraction disabled, then passes the resulting object using `csim_design -ldflags` and `cosim_design -ldflags`. The reference C file is no longer registered as an apcc testbench source. `SOC_GEMV_HW_CC` can select a different native host C compiler; this must not be an ARM cross-compiler. AMD documents linker flags for both simulation commands ([C simulation](https://docs.amd.com/r/2022.2-English/ug1399-vitis-hls/csim_design?contentId=eovOMlfA0ve_STE4KVUU4w), [RTL co-simulation](https://docs.amd.com/r/2022.2-English/ug1399-vitis-hls/cosim_design)).
+
+Local regression passes: actual C object compilation, no C source registered with apcc, correct object supplied to both mocked simulation stages, and corrected Boolean syntax. The native testbench linked to that exact Tcl-built C object passes the combined synthetic/real suite: 63 calls, 153,168 successful rows, max absolute error 0, zero failures. Kernel arithmetic and reference source are unchanged. Actual Vitis C simulation and later RTL validation remain pending.

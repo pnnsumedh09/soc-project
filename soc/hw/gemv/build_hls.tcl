@@ -9,6 +9,7 @@ set burst [setting SOC_GEMV_HW_BURST 64]
 set outstanding [setting SOC_GEMV_HW_OUTSTANDING 8]
 set stage [setting SOC_GEMV_HW_STAGE csim]
 set part [setting SOC_GEMV_HW_PART xczu3eg-sbva484-1-e]
+set host_cc [setting SOC_GEMV_HW_CC cc]
 if {$mhz ni {100 150 200} || $burst ni {1 4 16 64 256} ||
     ![string is integer -strict $outstanding] || $outstanding < 1 || $outstanding > 32 ||
     $stage ni {csim synth cosim export} || $part ni {xczu3eg-sbva484-1-e xczu3eg-sbva484-1-i}} {
@@ -24,12 +25,19 @@ set flags "-std=c++11 -ffp-contract=off $includes"
 add_files "$here/gemv.cpp" -cflags $flags
 add_files "$soc/lab3_ref/part3/dot_q8_0_core.cpp" -cflags $flags
 add_files -tb "$here/tb.cpp" -cflags $flags
-add_files -tb "$soc/sw/repack/soc_repack.c" -cflags "-std=c11 -ffp-contract=off $includes"
 open_solution -reset solution -flow_target vivado
 set_part $part
 create_clock -period [expr {1000.0 / $mhz}] -name default
 config_compile -unsafe_math_optimizations=false
 config_compile -no_signed_zeros=false
+
+# Keep the golden oracle in C; apcc applies C++ options to registered TB sources.
+set reference_object "$work/golden_ref/soc_repack.o"
+file mkdir [file dirname $reference_object]
+puts "Compiling golden reference as C11 with $host_cc"
+set compiler_output [exec -- $host_cc -O2 -std=c11 -ffp-contract=off \
+    -I$soc/sw/repack -c "$soc/sw/repack/soc_repack.c" -o $reference_object 2>@1]
+if {$compiler_output ne ""} { puts $compiler_output }
 
 # Depths cover 64 rows of the largest input width in the co-simulation testbench.
 set_directive_interface -mode m_axi -offset slave -bundle weights -depth 19456 \
@@ -49,9 +57,11 @@ set_directive_interface -mode m_axi -offset slave -bundle output -depth 64 \
     -max_write_burst_length 16 -num_write_outstanding 2 \
     -max_widen_bitwidth 32 soc_gemv_hw y
 
-csim_design
+csim_design -ldflags $reference_object
 if {$stage ne "csim"} { csynth_design }
-if {$stage in {cosim export}} { cosim_design -rtl verilog -trace_level port }
+if {$stage in {cosim export}} {
+    cosim_design -rtl verilog -trace_level port -ldflags $reference_object
+}
 if {$stage eq "export"} {
     export_design -format ip_catalog -rtl verilog -vendor soc.org -library hls -version 1.0
 }
