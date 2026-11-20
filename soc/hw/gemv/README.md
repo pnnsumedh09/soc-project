@@ -1,6 +1,6 @@
 # P3.1: Q8_0 GEMV HLS kernel v1
 
-Status: the sequential baseline (`SOC_GEMV_HW_ROW_INTERLEAVE=1`) passed Vitis C simulation and Verilog co-simulation on LRC (54 calls, 720 rows, zero error); synthesis achieved main II=5 with 9,317 LUT/6,210 FF/12 DSP/7 BRAM_18K. The new default eight-row candidate has passed native golden tests and UBSan, including real Qwen slices. Candidate Vitis C simulation, synthesis and RTL validation are pending. Baseline results do not validate the changed candidate or establish implemented timing/bandwidth.
+Status: the sequential baseline (`SOC_GEMV_HW_ROW_INTERLEAVE=1`) passed Vitis C simulation and Verilog co-simulation on LRC (54 calls, 720 rows, zero error); synthesis achieved main II=5 with 9,317 LUT/6,210 FF/12 DSP/7 BRAM_18K. The new default eight-row candidate has passed native golden tests and UBSan, including real Qwen slices. Candidate Vitis C simulation now passes (85 calls, 1,110 rows, zero error); synthesis achieves compute II=1/depth=22 with 12,580 LUT/10,660 FF/22 DSP/11 BRAM_18K. Candidate RTL validation remains pending. Baseline results do not validate the changed candidate or establish implemented timing/bandwidth.
 
 ## Data path and row interleaving
 
@@ -17,7 +17,7 @@ The default candidate processes eight rows per group and 32 Q8_0 blocks per tile
 
 Partial row groups still rotate all eight slots, but inactive lanes access neither inputs nor outputs. The final block tile uses only remaining valid blocks. Native tests cover both boundaries and invalid scales in a later group/tile.
 
-The source requests compute II=1; only Vitis can establish its actual schedule. Buffer loading and computation are separate phases, not overlapped DATAFLOW, so compute II alone is not whole-kernel throughput. Partial groups add idle slots, and tile buffering costs BRAM. Compare total latency, bursts and resources as well as II before promotion.
+The source requests compute II=1; the reviewed LRC candidate synthesis achieves II=1/depth=22. Buffer loading and computation are separate phases, not overlapped DATAFLOW, so compute II alone is not whole-kernel throughput. Partial groups add idle slots, and tile buffering costs BRAM. Compare total latency, bursts and resources as well as II before promotion.
 
 `SOC_GEMV_HW_ROW_INTERLEAVE=1` retains the original sequential implementation for comparison. Biases, activation quantization and other graph operations remain in the CPU path; this standalone kernel is not yet registered as the FPGA backend (P4.2).
 
@@ -88,7 +88,7 @@ soc/hw/gemv/test_gemv_hw /absolute/path/to/tensor.bin
 
 The testbench checks at most the first 64 rows of each supplied tensor file, with deterministic synthetic activations and the real weight values. The full model's generated text or score has not been tested through this hardware path.
 
-## LRC boundaries for the new eight-row candidate
+## LRC boundaries for the eight-row candidate (C/synthesis reviewed; RTL next)
 
 Sync the new `soc/hw/gemv/` directory to LRC along with its existing repack and Lab 3 dependencies. From the project root in the Xilinx 2022.2 environment:
 

@@ -13,17 +13,19 @@ Updated: 2026-11-20. Working checklist for the current handoff. `../../SOC_PROJE
 
 The sequential baseline passed Vitis C simulation and Verilog co-simulation (54 calls, 720 rows, zero error); preserve its existing `f150_b64_o8` project and reports. No repeat of that unchanged baseline is needed.
 
-The new default eight-row candidate passes local golden tests and UBSan, including eight Qwen slices. See `results/hls_gemv_f150_b64_o8_r8.md`. After syncing this change to LRC, run from the repository root:
+The eight-row candidate now passes Vitis C simulation (85 calls, 1,110 rows, zero error) and synthesis review. `interleave_words` achieved II=1/depth=22 versus baseline II=5. Candidate estimates: 12,580 LUT, 10,660 FF, 22 DSP and 11 BRAM_18K. Burst reads and output burst writes are inferred. Whole-kernel speedup is unmeasured; see `results/hls_gemv_f150_b64_o8_r8.md`.
+
+Next, run the unchanged candidate's RTL co-simulation from the LRC repository root:
 
 ```bash
 set -o pipefail
 mkdir -p soc/docs/results/lrc_p3_r8
-SOC_GEMV_HW_ROW_INTERLEAVE=8 SOC_GEMV_HW_STAGE=synth \
+SOC_GEMV_HW_ROW_INTERLEAVE=8 SOC_GEMV_HW_STAGE=cosim \
     vitis_hls -f soc/hw/gemv/build_hls.tcl \
-    2>&1 | tee soc/docs/results/lrc_p3_r8/synth.log
+    2>&1 | tee soc/docs/results/lrc_p3_r8/cosim.log
 ```
 
-The synth stage runs C simulation before synthesis, so a separate C-simulation command is unnecessary. Expected C summary: 85 calls, 1,110 rows, max absolute error 0, zero failures. Return the log and `soc/hw/hls_work/gemv/f150_b64_o8_r8/solution/syn/report/`. The `_r8` suffix keeps the verified baseline project intact. Review II, total latency, resources and bursts before candidate RTL co-simulation. No board preset, bitstream or QEMU is needed.
+The cosim stage automatically repeats C simulation/synthesis before RTL simulation; no separate synth rerun is needed. Preserve existing candidate logs/reports first. Expected final test summary: 85 calls, 1,110 rows, max absolute error 0, zero failures, followed by explicit C/RTL PASS. Return `cosim.log` and `soc/hw/hls_work/gemv/f150_b64_o8_r8/solution/sim/report/`. No board preset, bitstream or QEMU is needed.
 
 ### Completed C-simulation instructions (reference)
 
