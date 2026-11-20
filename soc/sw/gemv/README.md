@@ -66,3 +66,7 @@ End-to-end results (2026-11-18, `soc/docs/results/p2_hook_emul_test.md`): Qwen2.
 ## Numerics
 
 The golden arithmetic is llama.cpp's scalar `ggml_vec_dot_q8_0_q8_0_generic` with a separate FP32 multiply and add. It is bit-exact against that function when llama.cpp is compiled with `-ffp-contract=off` (100% of 26,624 real rows). The default GCC build fuses `sumf += sumi*(a*b)` into one `fmadd`, which changes the last bits (39.5% of rows bit-identical). Against the NEON kernel that runs on the A53 the differences are rounding-level (max diff 7e-7 of max|y|; 20 to 22% of rows bit-identical) because NEON sums in a different order. The hardware must match the golden model (separate multiply and add), not NEON.
+
+## Optional FPGA backend (P4.2 source implemented)
+
+The optional `soc/sw/hal2/` adapter implements the existing backend interface through UIO registers and a noncached u-dma-buf arena. Build selection is `-DGGML_SOC_GEMV_FPGA=ON` in addition to `GGML_SOC_GEMV`; runtime selection remains explicitly `SOC_GEMV_BACKEND=fpga`, with `emul` still the default. This adapter requires confirmed course-image support; it is not board-validated or an established submission dependency. See `../hal2/README.md` for local checks, allocator/coherency contract, failure quarantine and target smoke test. No hook location, cache format or CPU fallback arithmetic changed.

@@ -13,8 +13,8 @@ Status: synthesis completed and generated Verilog/VHDL; requested pipeline targe
 | Weight-scale read loop | II=1, depth 3 | Intended sequential scale read schedule achieved |
 | Weight-scale conversion | II=2, depth 3 | Per-row scale preparation also adds work |
 | Weight master | 128-bit data, 64-bit address, inferred variable-length bursts | Matches primary data-path width; configured max burst 64/outstanding 8 is not measured bus utilization |
-| Scale master | 16-bit data, inferred bursts | Auto-widening was blocked by reported alignment assumptions |
-| Activation master | 8-bit data, inferred 2-byte scale and 32-byte quant reads | Still byte-wide; the configured maximum widening width is not its achieved width |
+| Scale accesses | 16-bit elements/accesses, inferred bursts | Access width is not the physical AXI RDATA width; see P4 width correction |
+| Activation accesses | 8-bit elements/accesses, inferred 2-byte scale and 32-byte quant reads | Narrow accesses do not imply an 8-bit physical AXI bus |
 | Output master | 32-bit data, generated name `m_axi_output_r` | Future integration must use the actual generated interface name |
 | Control | AXI-Lite offsets match the source draft, status 0x60 / valid 0x64 | No register-map change required from these reports |
 | Resources | 9,317 LUT, 6,210 FF, 12 DSP, 7 BRAM_18K, 0 URAM | HLS estimates for the GEMV IP, excluding system interconnect/integration; not ASIC area/power |
@@ -43,3 +43,7 @@ Top-level XML SHA256: `c677fd40f7f3f9598e9887b4557a806ad1099cf1338c2b976b94db53a
 ## Subsequent baseline verification and candidate
 
 The replacement LRC cosim log completes Verilog co-simulation PASS at 02:01:50 CST on 2026-11-20: 54 calls, 720 rows, max absolute error 0, zero failures. This supersedes the RTL-pending next-step text above. The verified sequential implementation remains selectable with `SOC_GEMV_HW_ROW_INTERLEAVE=1`. The later eight-row candidate is separate and not covered by these vendor results; see `hls_gemv_f150_b64_o8_r8.md`.
+
+## P4 interpretation correction
+
+The earlier scale/activation widths described element/access widths, not physical AXI bus widths. The current r8 top signal table explicitly reports 32-bit RDATA on both scale/activation masters and 128-bit weights. Use the selected export's RTL/interface signal table for physical wiring widths; do not infer them from the C pointer type or burst-element width. See `p4_integration_source_validation.md`. This correction does not alter the recorded II or numerical results.

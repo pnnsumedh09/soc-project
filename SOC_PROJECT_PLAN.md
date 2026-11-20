@@ -2,7 +2,7 @@
 
 Living document. Read section 0 first. Update sections 8 (status), 13 (decisions) and 14 (session log) at the end of every working session.
 
-Last updated: 2026-11-20 (session 21). Project due: **2026-12-08**.
+Last updated: 2026-11-20 (session 22). Project due: **2026-12-08**.
 
 ---
 
@@ -370,9 +370,9 @@ Status: `TODO`, `DOING`, `DONE`, `BLOCKED`. Owner: name + date when started. "C"
 
 | ID | Task | Type | Status | Owner | Acceptance / output |
 |---|---|---|---|---|---|
-| P4.1 | Vivado block design Tcl: Zynq PS + GEMV IP + HP port + AXI-Lite (+IRQ if used); produce `.bit` and `.hwh` | C+B | TODO | | `soc/hw/vivado/`; bitstream in `soc/hw/out/` |
-| P4.2 | HAL v2 and (if allowed) driver: map regs, allocate contiguous buffers, descriptor table per (layer, op), start/poll, coherency handling. Start from `soc/lab3_ref/part4`. | C | TODO | | `soc/sw/hal2/` |
-| P4.3 | Board bring-up: single GEMV vs CPU on a real tensor; then full Qwen decode through the hardware | B | TODO | | Log in `soc/docs/results/bringup.md` |
+| P4.1 | Vivado block design Tcl: Zynq PS + GEMV IP + HP port + AXI-Lite (+IRQ if used); produce `.bit` and `.hwh` | C+B | DOING (source written; vendor checks pending) | Codex + Sumedh, 2026-11-20 | `soc/hw/vivado/gemv/`: staged script, topology/guard tests and README. Existing-synthesis packaging and register ABI check under `soc/hw/gemv/`. Local mocked checks pass; actual export, PS configuration, Vivado BD/route/timing and BIT/HWH remain pending. Validation: `soc/docs/results/p4_integration_source_validation.md`. |
+| P4.2 | HAL v2 and (if allowed) driver: map regs, allocate contiguous buffers, descriptor table per (layer, op), start/poll, coherency handling. Start from `soc/lab3_ref/part4`. | C | DOING (source written; board adapter unconfirmed) | Codex, 2026-11-20 | `soc/sw/hal2/`: portable control HAL/arena, optional UIO/u-dma-buf backend, timeout quarantine, smoke test, CMake/runtime selection. Local HAL/UBSan/fallback and emulation regression pass. Course-image support, target build and DMA/coherency checks pending; no driver installation assumed. Existing weight cache holds per-matrix addresses, so no separate v1 descriptor table is needed. |
+| P4.3 | Board bring-up: single GEMV vs CPU on a real tensor; then full Qwen decode through the hardware | B | TODO (smoke test prepared) | | `soc/sw/hal2/board_smoke.c` compiled locally only; board execution and real-tensor/full-model checks pending. Log in `soc/docs/results/bringup.md`. |
 
 ### Phase 5: Validate and optimize (Dec 1 to 6)
 
@@ -502,8 +502,8 @@ Lab 3 platform (reference, from `soc/lab3_ref/LAB3_README.md`): cross-build flag
 ---
 
 | 2026-11-20 | Explore eight-row interleaving with 32-block weight tiles and a rotating accumulator register queue; retain selectable sequential baseline in its original HLS project | Preserve each row's golden FP order and contiguous weight bursts while separating accumulator feedback across independent rows. Candidate II/resources/RTL still require Vitis; no false-dependence directives or speedup claims. |
-
 | 2026-11-20 | Restore sequential GEMV as default; defer row interleaving and double buffering at Sumedh's request | Favor a simpler direct weight-read/compute loop. Keep verified r8 as an explicitly selected experiment; sequential FP recurrence remains II=5. |
+| 2026-11-20 | Keep FPGA software adapter optional until course-image support is confirmed; implement common HAL plus one concrete UIO/u-dma-buf strategy | User does not yet know the available allocator. Emulation remains default; target adapter must use verified PL-visible memory and cache policy. Unknown completion quarantines the pool rather than blindly retrying/reusing DMA memory. |
 
 ## 14. Session log (append only, newest last)
 
@@ -547,3 +547,5 @@ Lab 3 platform (reference, from `soc/lab3_ref/LAB3_README.md`): cross-build flag
 - **2026-11-20, session 20 (Codex with Sumedh):** Reviewed lrc/gemv_r8_review.tar.gz without rerunning Vitis. Verified explicit Verilog/xsim co-simulation PASS and final golden check: 85 calls/1,110 rows, max error 0, no failures or ERROR/FATAL lines. Mapped all 85 transaction records to testbench cases and recorded successful shape latencies: 32×896 takes 9,244 cycles; 64×4864 takes 88,596 cycles (590.64 µs at configured 150 MHz). Aggregate timings include invalid/empty calls and are not representative GEMV latency. Reports provide no load/compute phase breakdown or matched sequential baseline timing; no board bandwidth or fivefold full-call speedup claimed. Preserved r8 as verified candidate and documented profiling/double-buffering options for subsequent work. Third design alternative and board/ASIC gates remain pending.
 
 - **2026-11-20, session 21 (Codex with Sumedh):** User requested no row interleaving for now because of complexity. Restored row-interleave default to 1 consistently in header, native Makefile and HLS script, retaining r8 only behind explicit selection. Updated mocked dispatch expectations and documentation/handoff; no additional overlap/buffering implementation. Sequential arithmetic unchanged; existing baseline C/RTL evidence retained and main II=5 acknowledged. Native golden suite and Tcl control-flow/default-project checks pass. No new LRC rerun required for selection-only change.
+
+- **2026-11-20, session 22 (Codex with Sumedh):** Implemented authorized P4.1/P4.2 source. Added staged sequential GEMV Vivado script, existing-synthesis export without reruns and generated-register ABI checks. Added common register HAL/arena and optional Linux/AArch64 UIO/u-dma-buf backend with x/y staging, persistent weight addresses, noncached write-combine/barriers, timeout quarantine and existing CPU fallback. User reports course allocator support is unknown; emulation remains default and actual board adapter selection is pending. Added target-only smoke test and read-only board discovery. Native HAL/fallback/arena and UBSan pass; existing hook suite passes both emulation-only and FPGA-enabled builds (89 emulated calls/48,256 rows, exact). Mocked Tcl topology/guards/export checks pass; no vendor/board result claimed. Corrected earlier element-width versus physical AXI-width interpretation: current signal table has 32-bit scales/activation ports, 128-bit weights. Handoff: package existing sequential IP if needed, Vivado preflight, confirmed PS settings/BD/route, board discovery and smoke. Full target CMake build and all board gates remain pending.

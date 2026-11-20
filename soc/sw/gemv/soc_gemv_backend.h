@@ -7,9 +7,9 @@
  *   2. run(): y = W x for one repacked matrix.
  *
  * "emul" (soc_gemv_backend_emul.c) does both on the CPU: heap memory and the
- * golden arithmetic from soc_repack. The FPGA backend (HAL v2, P4.2) will
- * implement the same five functions with contiguous DMA memory, a descriptor
- * write, start and wait.
+ * golden arithmetic from soc_repack. The optional FPGA backend (HAL v2, P4.2) implements
+ * the same five functions with contiguous DMA memory, register programming,
+ * start and wait; board support and execution still require validation.
  */
 #ifndef SOC_GEMV_BACKEND_H
 #define SOC_GEMV_BACKEND_H
@@ -45,6 +45,9 @@ typedef struct soc_gemv_backend {
 } soc_gemv_backend;
 
 extern const soc_gemv_backend soc_gemv_backend_emul;
+#ifdef SOC_GEMV_WITH_FPGA
+extern const soc_gemv_backend soc_gemv_backend_fpga;
+#endif
 
 #ifdef __cplusplus
 }

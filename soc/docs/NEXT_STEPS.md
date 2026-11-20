@@ -9,13 +9,40 @@ Updated: 2026-11-20. Working checklist for the current handoff. `../../SOC_PROJE
 - GEMV engine (P3.1): provisional kernel, HLS script and starter testbench exist in `../hw/gemv/`. Local golden synthetic/real-slice tests pass; Vitis C simulation passes and synthesis is reviewed; baseline Verilog C/RTL co-simulation passes; the new eight-row candidate is locally tested, with vendor checks pending.
 - PRD v0.1 (P0.7): drafted in `PRD.md`; model selection and hardware feasibility are explicitly provisional.
 
-## Current focus: simple sequential GEMV kernel
+## Current focus: P4.1/P4.2 source written; integration checks next
 
-Sumedh requested deferring row interleaving and double buffering. The default kernel is restored to `SOC_GEMV_HW_ROW_INTERLEAVE=1`: cache x, process one row at a time, read quant weights directly in the compute loop, then write that row's scalar. Header, native build and HLS defaults agree. The tested r8 experiment remains available only through explicit selection, with its artifacts retained for reference.
+The default remains the simple sequential GEMV, with existing C/synthesis/RTL PASS and compute II=5. No additional kernel simulation was required to write integration/HAL source. Row interleaving and double buffering remain deferred.
 
-The unchanged sequential datapath already passed baseline Vitis C/RTL checks; its compute II remains 5. There is no new LRC test to run for restoring this selection. No row-interleaving or DATAFLOW/double-buffer implementation work is scheduled now. Simpler future experiments could change the loop to operate on complete Q8_0 blocks or examine a wider datapath; neither is implemented or claimed to remove the FP recurrence.
+New source and local validation: `results/p4_integration_source_validation.md`, `../hw/vivado/gemv/README.md` and `../sw/hal2/README.md`. HAL/mock-control/arena/fallback/UBSan checks pass; both software-hook build variants retain exact emulation results. Vendor tools, target CMake build and real DMA have NOT been validated locally. The Linux adapter is optional because course-image UIO/allocator support is unknown.
 
-Both existing designs and the r8 transaction timings are documented in `results/hls_gemv_f150_b64_o8_v1.md` and `results/hls_gemv_f150_b64_o8_r8.md`. Board integration, hardware throughput, further P3.3 alternatives and ASIC gates remain pending.
+### On LRC now
+
+Pull the new source. If `soc/hw/hls_work/gemv/f150_b64_o8/solution/impl/ip/component.xml` is absent, package the existing sequential synthesis (do not reset/rebuild it):
+
+```bash
+vitis_hls -f soc/hw/gemv/export_existing.tcl
+```
+
+Then run the non-building preflight:
+
+```bash
+mkdir -p soc/docs/results/lrc_p4
+SOC_GEMV_BUILD_STAGE=check vivado -mode batch \
+    -source soc/hw/vivado/gemv/build_vivado.tcl \
+    2>&1 | tee soc/docs/results/lrc_p4/preflight.log
+```
+
+Return `preflight.log`. It checks exported target/clock/register ABI and lists board definitions without needing a PS preset. Actual BD/build requires the matching course PS configuration or installed board definition; do not silently switch -e/-i targets. See the P4.1 README for subsequent BD/bitstream stages.
+
+### On the board when available
+
+Read-only discovery, before assuming any allocator or accessing registers:
+
+```bash
+python3 soc/tools/board_preflight.py > board_preflight.json
+```
+
+Return the JSON. No driver installation or device-tree changes are authorized/required by this discovery. After confirming image support, matching hardware/PS setup and device-visible memory, build/run `soc/sw/hal2/board_smoke` before full inference. The optional adapter's UIO/u-dma-buf, low-DDR addressability and noncached write-combined pool must be confirmed; adapt it if the course image supports another mechanism. Board baseline/memory/bandwidth and ASIC gates remain pending.
 
 ### Completed C-simulation instructions (reference)
 

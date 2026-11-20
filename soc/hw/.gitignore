@@ -1,5 +1,6 @@
 /hls_work/
-/vivado/
+/vivado/*
+!/vivado/gemv/
 /out/*
 !/out/*.bit
 !/out/*.hwh

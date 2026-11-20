@@ -1,0 +1,4 @@
+/test_hal
+/board_smoke
+/*.dSYM/
+/test_backend_fallback

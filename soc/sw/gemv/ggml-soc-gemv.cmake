@@ -8,6 +8,19 @@ set(SOC_GEMV_SOURCES
     "${SOC_SW_DIR}/gemv/soc_gemv.c"
     "${SOC_SW_DIR}/gemv/soc_gemv_backend_emul.c")
 
+option(GGML_SOC_GEMV_FPGA "Build optional Linux UIO/u-dma-buf GEMV backend" OFF)
+if (GGML_SOC_GEMV_FPGA)
+    if (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        message(FATAL_ERROR "The FPGA adapter requires a Linux target")
+    endif()
+    list(APPEND SOC_GEMV_SOURCES
+        "${SOC_SW_DIR}/hal2/soc_gemv_hal.c"
+        "${SOC_SW_DIR}/hal2/soc_gemv_arena.c"
+        "${SOC_SW_DIR}/hal2/soc_gemv_backend_fpga.c")
+    target_include_directories(${GGML_CPU_NAME} PRIVATE "${SOC_SW_DIR}/hal2")
+    target_compile_definitions(${GGML_CPU_NAME} PRIVATE SOC_GEMV_WITH_FPGA)
+endif()
+
 target_sources(${GGML_CPU_NAME} PRIVATE ${SOC_GEMV_SOURCES})
 target_include_directories(${GGML_CPU_NAME} PRIVATE "${SOC_SW_DIR}/repack" "${SOC_SW_DIR}/gemv")
 target_compile_definitions(${GGML_CPU_NAME} PRIVATE GGML_SOC_GEMV)

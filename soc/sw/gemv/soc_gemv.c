@@ -90,6 +90,10 @@ static void init_once(void)
 
     if (strcmp(name, soc_gemv_backend_emul.name) == 0) {
         g_be = &soc_gemv_backend_emul;
+#ifdef SOC_GEMV_WITH_FPGA
+    } else if (strcmp(name, soc_gemv_backend_fpga.name) == 0) {
+        g_be = &soc_gemv_backend_fpga;
+#endif
     } else {
         fprintf(stderr, "soc_gemv: unknown backend '%s'\n", name);
         if (g_strict)

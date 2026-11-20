@@ -116,3 +116,7 @@ Before promoting the kernel, review the achieved loop II, inferred quants/scales
 References: existing `../../sw/repack/README.md`, `../../lab3_ref/part3/dot_q8_0_core.cpp`, [AMD FP operation ordering](https://docs.amd.com/r/2022.2-English/ug1399-vitis-hls/Optimizing-Logic-Expressions), and [AMD operator binding](https://docs.amd.com/r/2022.2-English/ug1399-vitis-hls/pragma-HLS-bind_op).
 
 The sequential baseline is recorded in `../../docs/results/hls_gemv_f150_b64_o8_v1.md`; its RTL suite has passed. The candidate's source design and local validation are in `../../docs/results/hls_gemv_f150_b64_o8_r8.md`. Both variants now have bounded RTL PASS evidence. Keep their artifacts and use the recorded transaction latencies to compare further candidates. Do not reuse the baseline's schedule/resource numbers for the candidate.
+
+## Integration source and bus-width note
+
+P4.1 scripts are under `../vivado/gemv/`; P4.2 optional software under `../../sw/hal2/`. Common HAL/mock tests pass; actual vendor/board integration remains pending. `export_existing.tcl` packages the existing sequential synthesis without rerunning tests; `check_export.tcl` verifies generated register offsets. The reported 8-bit activation and 16-bit scale access widths are not physical AXI bus widths: the current top signal table reports 32-bit RDATA for both, with 128-bit weights. Inspect the selected export/BD signal widths during integration.

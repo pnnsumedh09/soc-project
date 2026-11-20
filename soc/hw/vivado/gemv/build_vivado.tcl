@@ -1,0 +1,197 @@
+set here [file dirname [file normalize [info script]]]
+proc setting {name fallback} {
+    if {[info exists ::env($name)]} { return $::env($name) }
+    return $fallback
+}
+set mhz [setting SOC_GEMV_HW_MHZ 150]
+set burst [setting SOC_GEMV_HW_BURST 64]
+set outstanding [setting SOC_GEMV_HW_OUTSTANDING 8]
+set board_part [setting SOC_GEMV_BOARD_PART ""]
+set ps_config [setting SOC_GEMV_PS_CONFIG ""]
+set jobs [setting SOC_GEMV_JOBS 8]
+set stage [setting SOC_GEMV_BUILD_STAGE check]
+set base [setting SOC_GEMV_CONTROL_BASE 0xA0000000]
+if {[setting SOC_GEMV_HW_ROW_INTERLEAVE 1] ne "1"} {
+    error "P4 integration currently selects only the sequential kernel"
+}
+if {![string is wideinteger -strict $base] || $base < 0xA0000000 || $base > 0xAFFF0000 || ($base % 65536) != 0} {
+    error "Control base must be 64KiB-aligned in 0xA0000000..0xAFFF0000"
+}
+set part [setting SOC_GEMV_HW_PART xczu3eg-sbva484-1-e]
+set board_repo [setting SOC_GEMV_BOARD_REPO ""]
+if {$mhz ni {100 150 200} || $burst ni {1 4 16 64 256} ||
+    ![string is integer -strict $outstanding] || $outstanding < 1 || $outstanding > 32 ||
+    ![string is integer -strict $jobs] || $jobs < 1} {
+    error "Invalid MHz, burst, outstanding request count, or job count"
+}
+if {$stage ni {check bd bitstream} || $part ni {xczu3eg-sbva484-1-e xczu3eg-sbva484-1-i}} {
+    error "Use SOC_GEMV_BUILD_STAGE=check/bd/bitstream and a supported SOC_GEMV_HW_PART (-e or -i)"
+}
+set tag f${mhz}_b${burst}_o${outstanding}
+set ip_repo [file normalize "$here/../../hls_work/gemv/$tag/solution/impl/ip"]
+if {$board_repo ne ""} {
+    if {![file isdirectory $board_repo]} { error "Missing board repository: $board_repo" }
+    set_param board.repoPaths [concat [get_param board.repoPaths] [list [file normalize $board_repo]]]
+}
+puts "P4.1 Vivado stage: $stage; HLS configuration: $tag; target part: $part"
+puts "Installed Ultra96 board definitions:"
+set boards {}
+foreach board [get_board_parts -quiet *] {
+    if {[string match -nocase *ultra96* $board]} { lappend boards $board }
+}
+foreach board $boards { puts "  $board  part=[get_property PART_NAME $board]" }
+if {[llength $boards] == 0} {
+    puts "  None found. Supply the course PS configuration, or register board files using SOC_GEMV_BOARD_REPO."
+}
+if {![file isfile "$ip_repo/component.xml"]} {
+    error "Exported IP component.xml missing: $ip_repo (do not rerun HLS if the existing export can be restored here)"
+}
+set report [file normalize "$ip_repo/../../syn/report/soc_gemv_hw_csynth.xml"]
+if {![file isfile $report]} { error "Missing HLS target-part report: $report" }
+set stream [open $report r]
+set report_text [read $stream]
+close $stream
+if {![regexp {<Part>([^<]+)</Part>} $report_text -> hls_part]} { error "Cannot read target part from $report" }
+puts "Exported HLS report target: $hls_part"
+if {![regexp {<TargetClockPeriod>([^<]+)</TargetClockPeriod>} $report_text -> period] ||
+    abs($period - 1000.0 / $mhz) > 0.02} { error "HLS clock target does not match requested MHz" }
+source "$here/../../gemv/check_export.tcl"
+soc_gemv_check_registers $ip_repo
+set rpt [file rootname $report].rpt
+if {![file isfile $rpt]} { error "Missing text synthesis report: $rpt" }
+set stream [open $rpt r]
+set schedule [read $stream]
+close $stream
+if {[string first "interleave_words" $schedule] >= 0 ||
+    [string first "read_words" $schedule] < 0} {
+    error "The selected export must be the sequential GEMV kernel"
+}
+if {$hls_part ne $part} {
+    error "HLS target $hls_part differs from requested $part; resolve the actual board/course target before rebuilding"
+}
+if {$board_part ne ""} {
+    set selected [get_board_parts -quiet $board_part]
+    if {[llength $selected] != 1} { error "Board identifier must resolve to exactly one installed definition: $board_part" }
+    set board_device [get_property PART_NAME $selected]
+    if {$board_device ne $part} {
+        error "Board definition selects $board_device, but HLS selects $part. Use the matching course PS configuration or confirm the actual part before retargeting."
+    }
+}
+if {$stage eq "check"} {
+    puts "Exported HLS IP and target report found. No block design or bitstream generated."
+    puts "Next: select exactly one SOC_GEMV_BOARD_PART or SOC_GEMV_PS_CONFIG, then use SOC_GEMV_BUILD_STAGE=bd."
+    return
+}
+if {($board_part eq "") == ($ps_config eq "")} {
+    error "Set exactly one of SOC_GEMV_BOARD_PART or SOC_GEMV_PS_CONFIG (see README.md)"
+}
+if {$ps_config ne "" && ![file isfile $ps_config]} { error "Missing PS configuration: $ps_config" }
+set work [file normalize "$here/../gemv_$tag"]
+create_project -force gemv $work -part $part
+if {$board_part ne ""} { set_property board_part $board_part [current_project] }
+set_property ip_repo_paths [list $ip_repo] [current_project]
+update_ip_catalog
+create_bd_design soc_gemv
+set ps [create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.3 zynq_ultra_ps_e_0]
+if {$board_part ne ""} {
+    apply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e \
+        -config {apply_board_preset "1"} $ps
+} else {
+    # Course file configures this existing $ps, including DDR/MIO/PS clocks.
+    source [file normalize $ps_config]
+}
+set_property -dict [list \
+    CONFIG.PSU__USE__M_AXI_GP0 {1} \
+    CONFIG.PSU__USE__M_AXI_GP1 {0} \
+    CONFIG.PSU__USE__M_AXI_GP2 {0} \
+    CONFIG.PSU__MAXIGP0__DATA_WIDTH {32} \
+    CONFIG.PSU__USE__S_AXI_GP0 {0} \
+    CONFIG.PSU__USE__S_AXI_GP1 {0} \
+    CONFIG.PSU__USE__S_AXI_GP2 {1} \
+    CONFIG.PSU__USE__S_AXI_GP3 {0} \
+    CONFIG.PSU__USE__S_AXI_GP4 {0} \
+    CONFIG.PSU__USE__S_AXI_GP5 {0} \
+    CONFIG.PSU__USE__S_AXI_GP6 {0} \
+    CONFIG.PSU__SAXIGP2__DATA_WIDTH {128} \
+    CONFIG.PSU__USE__IRQ0 {0} \
+    CONFIG.PSU__USE__IRQ1 {0} \
+    CONFIG.PSU__USE__FABRIC__RST {1} \
+    CONFIG.PSU__FPGA_PL0_ENABLE {1} \
+    CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ $mhz] $ps
+
+
+create_bd_cell -type ip -vlnv soc.org:hls:soc_gemv_hw:1.0 gemv_0
+create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 control_xbar
+set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {1}] [get_bd_cells control_xbar]
+create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 memory_xbar
+set_property -dict [list CONFIG.NUM_SI {4} CONFIG.NUM_MI {1}] [get_bd_cells memory_xbar]
+create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 reset_0
+set_property CONFIG.C_EXT_RESET_HIGH {0} [get_bd_cells reset_0]
+create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 locked_0
+set_property CONFIG.CONST_VAL {1} [get_bd_cells locked_0]
+create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 zero_0
+set_property CONFIG.CONST_VAL {0} [get_bd_cells zero_0]
+
+connect_bd_intf_net [get_bd_intf_pins $ps/M_AXI_HPM0_FPD] [get_bd_intf_pins control_xbar/S00_AXI]
+connect_bd_intf_net [get_bd_intf_pins control_xbar/M00_AXI] [get_bd_intf_pins gemv_0/s_axi_control]
+foreach {port slot} {weights S00_AXI scales S01_AXI activation S02_AXI output_r S03_AXI} {
+    set pin [get_bd_intf_pins -quiet gemv_0/m_axi_$port]
+    if {[llength $pin] != 1} { error "Missing expected HLS interface m_axi_$port; inspect exported component.xml" }
+    connect_bd_intf_net $pin [get_bd_intf_pins memory_xbar/$slot]
+}
+connect_bd_intf_net [get_bd_intf_pins memory_xbar/M00_AXI] [get_bd_intf_pins $ps/S_AXI_HP0_FPD]
+foreach pin {maxihpm0_fpd_aclk saxihp0_fpd_aclk} {
+    connect_bd_net [get_bd_pins $ps/pl_clk0] [get_bd_pins $ps/$pin]
+}
+foreach pin {gemv_0/ap_clk control_xbar/aclk memory_xbar/aclk reset_0/slowest_sync_clk} {
+    connect_bd_net [get_bd_pins $ps/pl_clk0] [get_bd_pins $pin]
+}
+connect_bd_net [get_bd_pins $ps/pl_resetn0] [get_bd_pins reset_0/ext_reset_in]
+connect_bd_net [get_bd_pins locked_0/dout] [get_bd_pins reset_0/dcm_locked]
+foreach pin {aux_reset_in mb_debug_sys_rst} {
+    connect_bd_net [get_bd_pins zero_0/dout] [get_bd_pins reset_0/$pin]
+}
+foreach pin {gemv_0/ap_rst_n control_xbar/aresetn memory_xbar/aresetn} {
+    connect_bd_net [get_bd_pins reset_0/peripheral_aresetn] [get_bd_pins $pin]
+}
+assign_bd_address -offset $base -range 64K \
+    -target_address_space [get_bd_addr_spaces $ps/Data] \
+    [get_bd_addr_segs gemv_0/s_axi_control/Reg] -force
+assign_bd_address
+validate_bd_design
+save_bd_design
+write_bd_tcl -force "$work/soc_gemv_bd.tcl"
+assign_bd_address -export_to_file "$work/address_map.csv" -force
+if {$stage eq "bd"} {
+    puts "P4.1 block design saved; control base $base. No bitstream generated."
+    close_project
+    return
+}
+set bd [get_files */soc_gemv.bd]
+generate_target all $bd
+set wrapper [make_wrapper -files $bd -top]
+add_files -norecurse $wrapper
+set_property top soc_gemv_wrapper [current_fileset]
+update_compile_order -fileset sources_1
+launch_runs impl_1 -to_step write_bitstream -jobs $jobs
+wait_on_run impl_1
+if {[get_property PROGRESS [get_runs impl_1]] ne "100%"} { error "Implementation failed" }
+open_run impl_1
+report_timing_summary -file "$work/timing_summary.rpt"
+report_utilization -file "$work/utilization.rpt"
+foreach delay_type {max min} {
+    set paths [get_timing_paths -delay_type $delay_type -max_paths 1]
+    if {[llength $paths] == 0 || [get_property SLACK [lindex $paths 0]] < 0} {
+        error "Timing not met ($delay_type); inspect $work/timing_summary.rpt"
+    }
+}
+set out [file normalize "$here/../../out"]
+file mkdir $out
+set stem "$out/gemv_$tag"
+set hwh "$work/gemv.gen/sources_1/bd/soc_gemv/hw_handoff/soc_gemv.hwh"
+if {![file isfile $hwh]} { error "Generated HWH missing: $hwh" }
+file copy -force "$work/gemv.runs/impl_1/soc_gemv_wrapper.bit" "$stem.bit"
+file copy -force $hwh "$stem.hwh"
+write_hw_platform -fixed -include_bit -force -file "$stem.xsa"
+puts "P4.1 bitstream/HWH/XSA: $stem; control base $base"
+close_project
