@@ -30,6 +30,7 @@ This file maps every document in the project. When transferring context to anoth
 |---|---|---|---|
 | 4 | `soc/sw/repack/README.md` | Repack library: converts Q8_0 blocks into hardware-friendly quants+scales arrays. API, file list, how to build and test. Task P2.1, done. | READ before touching repack code |
 | 5 | `soc/sw/gemv/README.md` | GEMV hook: how llama.cpp calls into our accelerator path. Weight cache, backend interface, emulation backend. Task P2.2/P2.3, done. | READ before touching hook code |
+| 5a | `soc/hw/gemv/README.md` | GEMV HLS v1 data path, arithmetic, interfaces, local tests and LRC C-simulation command. | READ before GEMV hardware work |
 | 6 | `soc/lab3_ref/LAB3_README.md` | Lab 3 reference: how to build and run the SystemC accelerator + QEMU platform. Kept unchanged as reference. | OPTIONAL — only if you need Lab 3 context |
 
 ### Phase 2: Results and measurements
@@ -38,7 +39,10 @@ This file maps every document in the project. When transferring context to anoth
 |---|---|---|---|
 | 7 | `soc/docs/results/model_dims.md` | Qwen2.5-0.5B tensor dump: all 291 tensors, shapes, types, byte counts. Confirms embeddings not tied, all matmuls Q8_0, 525 MB read per token. | Done |
 | 8 | `soc/docs/results/p2_hook_emul_test.md` | Emulation backend test results: bit-exact vs generic CPU (no-FMA), NEON diff 7e-7 relative. | Done (sandbox only, board run pending) |
-| 8a | `soc/docs/results/p1_bw_test_validation.md` | P1.1 local source checks and explicit vendor-tool/board validation still pending. | Source checks done; no bandwidth measurement |
+| 8a | `soc/docs/results/p1_bw_test_validation.md` | P1.1 native checks, verified LRC HLS run and current integration status. | HLS verified; no board bandwidth measurement |
+| 8b | `soc/docs/results/p3_gemv_source_validation.md` | P3.1 native/real-weight and Vitis C checks, plus synthesis follow-up. | C and baseline RTL checks pass; synthesis reviewed |
+| 8c | `soc/docs/results/hls_gemv_f150_b64_o8_v1.md` | First GEMV synthesis baseline, achieved II, ports, resources, warnings and next checks. | Reviewed; II=5 misses target 1; baseline RTL passes |
+| 8d | `soc/docs/results/hls_gemv_f150_b64_o8_r8.md` | Eight-row interleaving candidate, tile/accumulator design and expanded local checks. | Native/real-slice/UBSan pass; candidate Vitis checks pending |
 | 9 | `soc/docs/results/baseline_300mhz.md` | 300 MHz single-core baseline speed and accuracy | TODO (P0.2) |
 | 10 | `soc/docs/results/model_sweep_300mhz.md` | Model/quant sweep results at 300 MHz | TODO (P0.3) |
 | 11 | `soc/docs/results/board_memory.md` | CMA, free memory, allocation sequence test | TODO (P0.6) |
@@ -100,7 +104,7 @@ llama.cpp/
 │   │   └── hal2/                    (TODO) FPGA backend / HAL v2 (P4.2)
 │   └── hw/                          (TODO) HLS sources, Vivado scripts, bitstream
 │       ├── bw_test/                 bandwidth test HLS IP, timing RTL, scripts and runner (P1.1 source done; vendor validation pending)
-│       ├── gemv/                    (TODO) GEMV HLS kernel (P3.1)
+│       ├── gemv/                    GEMV HLS kernel/testbench/scripts (P3.1 source done; Vitis pending)
 │       ├── vivado/                  (TODO) block design Tcl (P4.1)
 │       └── out/                     (TODO) .bit and .hwh for submission
 ```
@@ -120,9 +124,9 @@ llama.cpp/
 - P0.7 PRD v0.1 — **DONE (initial draft)**; update at each architecture gate
 
 ### Phase 1: Architecture validation (gates D0, B0, A0)
-- P1.1 HLS bandwidth test IP — **DONE (source)**; native functional tests pass; vendor-tool/RTL validation pending. See `soc/hw/bw_test/README.md`.
-- P1.2 HP port bandwidth measurement (board) — TODO
-- P1.3 ASIC area/power envelope — TODO (Claude can do now)
+- P1.1 HLS bandwidth test IP — **DONE**: HLS C/synthesis/RTL co-simulation/export verified; standalone monitor pass reported by Sumedh. Vivado integration/board checks remain P1.2.
+- P1.2 HP port bandwidth measurement (board) — **DOING (integration preparation)**; staged Vivado preflight/BD scripts ready; no board measurement yet
+- P1.3 ASIC area/power envelope — **DOING**; `soc/docs/results/asic_envelope.md` has initial capacity/storage analysis; area/power bounds and A0 remain pending
 
 ### Phase 2: Software path (hook + repack)
 - P2.1 Repack library — **DONE**
@@ -131,9 +135,9 @@ llama.cpp/
 - P2.4 Per-op profile with hook (board) — TODO
 
 ### Phase 3: HLS accelerator
-- P3.1 GEMV HLS kernel v1 — TODO (Claude can do now)
-- P3.2 Testbench — TODO (Claude can do now)
-- P3.3 HLS synthesis + design exploration (LRC) — TODO
+- P3.1 GEMV HLS kernel v1 — **DONE (source + Vitis C simulation)**; first synthesis reviewed; baseline RTL passes
+- P3.2 Testbench — **DONE (testbench + Vitis C simulation)**; RTL validation remains P3.3
+- P3.3 HLS synthesis + design exploration (LRC) — **DOING**; v1 synthesis reviewed, main II=5, baseline RTL passes; eight-row candidate locally tested, Vitis checks next
 - P3.4 (Optional) SystemC/TLM co-verification — TODO
 
 ### Phase 4: Integration

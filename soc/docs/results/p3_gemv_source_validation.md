@@ -51,3 +51,29 @@ The next LRC attempt accepted both corrected Boolean options but failed while co
 The HLS script now compiles the unchanged `soc_repack.c` explicitly as C11 with native host `cc` and contraction disabled, then passes the resulting object using `csim_design -ldflags` and `cosim_design -ldflags`. The reference C file is no longer registered as an apcc testbench source. `SOC_GEMV_HW_CC` can select a different native host C compiler; this must not be an ARM cross-compiler. AMD documents linker flags for both simulation commands ([C simulation](https://docs.amd.com/r/2022.2-English/ug1399-vitis-hls/csim_design?contentId=eovOMlfA0ve_STE4KVUU4w), [RTL co-simulation](https://docs.amd.com/r/2022.2-English/ug1399-vitis-hls/cosim_design)).
 
 Local regression passes: actual C object compilation, no C source registered with apcc, correct object supplied to both mocked simulation stages, and corrected Boolean syntax. The native testbench linked to that exact Tcl-built C object passes the combined synthetic/real suite: 63 calls, 153,168 successful rows, max absolute error 0, zero failures. Kernel arithmetic and reference source are unchanged. Actual Vitis C simulation and later RTL validation remain pending.
+
+## Vitis C simulation PASS: 2026-11-20
+
+Sumedh supplied the completed LRC Vitis HLS 2022.2 C-simulation result at 01:42:14 CST for `f150_b64_o8`: `GEMV HW: PASS; calls=54 rows=720 max_abs_error=0 failures=0`, followed by `CSim done with 0 errors` and the stage-completed message. This establishes that the bounded GEMV testbench now compiles and runs with the real HLS types and the separately linked C oracle. The earlier Boolean and mixed-language build failures are resolved for C simulation.
+
+The 54-call/720-row count is the expected HLS suite; the native-only maximum-row case and optional real-tensor files are not part of this default run. This is C-level numerical validation, not generated-RTL or board evidence. Next: `SOC_GEMV_HW_STAGE=synth`; review achieved II, burst inference, FP operator binding, interfaces, resources and timing before RTL co-simulation.
+
+## First synthesis baseline reviewed: 2026-11-20
+
+Reviewed supplied `project/lrc/synth.log` and GEMV-named RPT/XML files. Synthesis completed, but main read/compute loop achieved II=5 versus target 1 because of the FP accumulator dependency. Activation load II=42 per block; scale reads II=1; conversion II=2. Inferred weight/scales bursts and register offsets match the design. Resource estimates: 9,317 LUT, 6,210 FF, 12 DSP, 7 BRAM_18K. Detailed review and provenance: `hls_gemv_f150_b64_o8_v1.md`. The next boundary is baseline Verilog co-simulation; no kernel source change or hardware performance pass is claimed.
+
+## Uploaded cosim.log is C-simulation-only: 2026-11-20
+
+The next uploaded `project/lrc/cosim.log` (01:51:13-01:51:30 CST) reports the expected 54-call/720-row C-simulation PASS, then explicitly ends with `P3.1 GEMV HLS stage csim completed`. It contains no `cosim_design` invocation or C/RTL completion result. No GEMV co-simulation RPT is present in the supplied report folder (the older `soc_bw_read_cosim.rpt` belongs to P1.1). This evidence does not establish that GEMV RTL co-simulation ran or passed. It may be a miscopied log or a csim-stage invocation; the supplied log does not show the original shell command, so do not assume which. Obtain an existing actual co-simulation log/report if available; otherwise invoke the cosim stage explicitly. No source change is indicated by this upload.
+
+## Verilog C/RTL co-simulation PASS: 2026-11-20
+
+The replacement `project/lrc/cosim.log` now contains the actual `cosim_design -rtl verilog -trace_level port -ldflags .../golden_ref/soc_repack.o` invocation and `C/RTL co-simulation finished: PASS`. The final RTL-backed testbench reports `GEMV HW: PASS; calls=54 rows=720 max_abs_error=0 failures=0`. The script completes stage `cosim` at 02:01:50 CST, with co-simulation elapsed time 458.28 seconds. No ERROR/FATAL lines appear in this log. This supersedes the previous C-simulation-only upload as the latest verification evidence.
+
+Generated Verilog agrees with the golden reference for the bounded synthetic/status suite, including repeated calls and nonfinite-scale rejection. Optional real-tensor fixtures and the native-only maximum-row case were not run in this default RTL suite. This establishes baseline RTL functional correctness for the tested cases; it does not establish board throughput or timing. P3.3 remains in progress because design exploration is outstanding. Next: preserve this baseline, then optimize the II=5 FP recurrence and activation loading, checking numerical correctness at each changed design boundary. No repeat of this unchanged baseline run is needed.
+
+## Eight-row candidate source validation: 2026-11-20
+
+Implemented row interleaving after the sequential baseline's RTL pass. The new default `SOC_GEMV_HW_ROW_INTERLEAVE=8` buffers 32 blocks per row and rotates eight independent accumulators while reusing the 16-product dot datapath. Each row's arithmetic order is preserved. The original sequential implementation remains selectable with `1`; candidate projects have a separate `_r8` suffix.
+
+Expanded native suite passes for both variants: 86 calls, 153,046 rows, zero error. Eight existing Qwen slices bring candidate coverage to 94 calls/153,558 rows, all bit-exact; separately instrumented UBSan also passes. Added row-group/block-tile boundary shapes and a late invalid-scale case. Candidate HLS suite now expects 85 calls/1,110 successful rows. Actual candidate Vitis compilation, achieved II/resources and RTL correctness are pending. Details: `hls_gemv_f150_b64_o8_r8.md`.

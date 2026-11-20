@@ -1,16 +1,73 @@
 # Next steps for Sumedh: LRC and Ultra96 checks
 
-Updated: 2026-11-19. Working checklist for the current handoff. `../../SOC_PROJECT_PLAN.md` remains the master task/status document; this file adds execution order and evidence to return, not a second project plan.
+Updated: 2026-11-20. Working checklist for the current handoff. `../../SOC_PROJECT_PLAN.md` remains the master task/status document; this file adds execution order and evidence to return, not a second project plan.
 
 ## What is already written
 
 - Q8_0 repack, GEMV hook/cache and emulation backend (P2.1-P2.3): implemented; local tests and prior sandbox end-to-end results exist. Target-board validation remains pending.
-- Bandwidth experiment (P1.1): kernel, functional testbench, RTL cycle monitor/testbench, HLS/Vivado scripts and optional PYNQ runner exist in `../hw/bw_test/`. Native tests pass. Vendor-tool execution and board results remain pending.
+- Bandwidth experiment (P1.1): native/Vitis C simulation, synthesis, Verilog co-simulation and IP export pass; separate monitor pass reported. Board integration and bandwidth measurements remain pending.
+- GEMV engine (P3.1): provisional kernel, HLS script and starter testbench exist in `../hw/gemv/`. Local golden synthetic/real-slice tests pass; Vitis C simulation passes and synthesis is reviewed; baseline Verilog C/RTL co-simulation passes; the new eight-row candidate is locally tested, with vendor checks pending.
 - PRD v0.1 (P0.7): drafted in `PRD.md`; model selection and hardware feasibility are explicitly provisional.
+
+## Current focus: eight-row GEMV candidate (P3.3)
+
+The sequential baseline passed Vitis C simulation and Verilog co-simulation (54 calls, 720 rows, zero error); preserve its existing `f150_b64_o8` project and reports. No repeat of that unchanged baseline is needed.
+
+The new default eight-row candidate passes local golden tests and UBSan, including eight Qwen slices. See `results/hls_gemv_f150_b64_o8_r8.md`. After syncing this change to LRC, run from the repository root:
+
+```bash
+set -o pipefail
+mkdir -p soc/docs/results/lrc_p3_r8
+SOC_GEMV_HW_ROW_INTERLEAVE=8 SOC_GEMV_HW_STAGE=synth \
+    vitis_hls -f soc/hw/gemv/build_hls.tcl \
+    2>&1 | tee soc/docs/results/lrc_p3_r8/synth.log
+```
+
+The synth stage runs C simulation before synthesis, so a separate C-simulation command is unnecessary. Expected C summary: 85 calls, 1,110 rows, max absolute error 0, zero failures. Return the log and `soc/hw/hls_work/gemv/f150_b64_o8_r8/solution/syn/report/`. The `_r8` suffix keeps the verified baseline project intact. Review II, total latency, resources and bursts before candidate RTL co-simulation. No board preset, bitstream or QEMU is needed.
+
+### Completed C-simulation instructions (reference)
+
+GEMV v1 source, testbench and HLS script now exist under `soc/hw/gemv/`. Native synthetic tests and eight real Qwen slices pass bit-exactly against the existing golden reference; UndefinedBehaviorSanitizer passes. See `results/p3_gemv_source_validation.md`. The kernel is standalone and not connected to the FPGA software backend yet.
+
+Sync the new directory and existing repack/Lab 3 dependencies to LRC. In the Xilinx 2022.2 environment, from the repository root:
+
+```bash
+set -o pipefail
+mkdir -p soc/docs/results/lrc_p3
+SOC_GEMV_HW_STAGE=csim vitis_hls -f soc/hw/gemv/build_hls.tcl \
+    2>&1 | tee soc/docs/results/lrc_p3/csim.log
+```
+
+Expected summary: `GEMV HW: PASS`, 54 calls and zero failures. Return this new GEMV C-simulation log before synthesis. It requires no board preset or QEMU. These C-simulation instructions are retained for reference; synthesis review and baseline RTL numerical checks have since completed. Implemented hardware timing remains pending. This new kernel requires its own checks; do not repeat the completed P1.1 tests.
+
+The earlier bandwidth-reader integration instructions below remain available for later board measurements. They are not a prerequisite to this GEMV source-validation step.
+
+## Completed P1.1 and later bandwidth integration (2026-11-20)
+
+The supplied export log confirms Vitis C simulation, synthesis, Verilog C/RTL co-simulation (60 transactions) and IP export completed successfully for f150_b64_o8. Sumedh also confirms the separate cycle-counter simulation passes; its raw log is not yet supplied. Do not rerun completed tests for the unchanged source/configuration. Board bandwidth remains unmeasured.
+
+When resuming the separate bandwidth-board path, its next task is Vivado integration. Copy the updated `soc/hw/bw_test/build_vivado.tcl` to LRC, then run this from the cloned repository root in the Xilinx 2022.2 environment:
+
+```bash
+set -o pipefail
+mkdir -p soc/docs/results/lrc_p1
+SOC_BW_BUILD_STAGE=check vivado -mode batch -source soc/hw/bw_test/build_vivado.tcl \
+    2>&1 | tee soc/docs/results/lrc_p1/vivado_preflight.log
+```
+
+Return `vivado_preflight.log` first. This stage lists installed Ultra96 definitions with their exact device parts and checks the existing HLS component/report; it creates no design or bitstream. The board definition/course PS configuration must match the intended target. Official current Avnet Ultra96-V2 files name an industrial-grade (-i) part, while our completed HLS run targets the course -e part; resolve the actual target before selecting a preset. Do not retarget or rerun HLS merely because a different board definition is listed.
+
+After the preset/configuration is resolved, run `SOC_BW_BUILD_STAGE=bd` with that selection; inspect block-design validation before running `SOC_BW_BUILD_STAGE=bitstream` with the same settings. These Vivado stages reuse the HLS export. See the bandwidth README for `SOC_BW_BOARD_PART`, `SOC_BW_PS_CONFIG`, optional user-owned `SOC_BW_BOARD_REPO`, and explicit `SOC_BW_PART` settings.
+
+## LRC session instructions (reference)
+
+The initial source transfer and P1.1 simulation/export runs are complete. Sections 1 and 3 retain the original commands for reproducibility, not as requests to repeat them. Sync the latest integration-script changes before the current preflight command above. Keep the validated 150 MHz, burst 64, outstanding 8 configuration until there is evidence to change it.
+
+Use `set -o pipefail` if piping commands through `tee`; otherwise a successful `tee` can hide a failed tool exit. Save C simulation, monitor RTL and export logs separately under `soc/docs/results/lrc_p1/`. These first checks require neither a board nor a PS preset. Bitstream implementation in section 4 still requires the correct board preset/PS configuration.
 
 ## 1. Transfer the current sources to LRC
 
-- [ ] Copy the current working tree, including the untracked `soc/` directory and the modified `ggml/src/ggml-cpu/ggml-cpu.c` and `CMakeLists.txt`. A fresh upstream clone alone does not contain this work.
+- [x] Initial project source pushed and cloned on LRC (reported by Sumedh). Subsequent local integration-script edits still need to be synced before use.
 - [ ] Keep the project branch `soc-gemv-accel`. Do not push to the upstream `origin` remote.
 - [ ] Record source revision, local changes, compiler/tool versions and board image. Save logs with their build settings so results can be reproduced.
 
@@ -24,7 +81,7 @@ Updated: 2026-11-19. Working checklist for the current handoff. `../../SOC_PROJE
 
 Return: the tutorial or relevant excerpts, PS preset/configuration, benchmark script/help and submission schema/example. Record resolved questions in `results/autograder_flow.md`.
 
-## 3. Run the P1.1 simulations on LRC before building its bitstream
+## 3. Completed P1.1 simulations (commands retained for reference)
 
 From the llama.cpp root:
 
@@ -36,8 +93,8 @@ SOC_BW_STAGE=csim vitis_hls -f soc/hw/bw_test/build_hls.tcl
 vivado -mode batch -source soc/hw/bw_test/test_rtl.tcl
 ```
 
-- [ ] Native and Vitis C simulation pass.
-- [ ] The RTL monitor simulation prints `read window: PASS` with no fatal errors.
+- [x] Native and Vitis C simulation pass.
+- [x] RTL monitor simulation passes (reported by Sumedh; raw log not yet supplied).
 
 Then synthesize, RTL co-simulate and export the first configuration:
 
@@ -46,8 +103,8 @@ SOC_BW_MHZ=150 SOC_BW_BURST=64 SOC_BW_OUTSTANDING=8 SOC_BW_STAGE=export \
     vitis_hls -f soc/hw/bw_test/build_hls.tcl
 ```
 
-- [ ] C simulation and RTL co-simulation pass. The export stage reruns earlier checks and resets the generated project for this configuration; preserve any earlier logs you need first.
-- [ ] Check that the memory interface is 128 bits, the read loop achieves II=1, and bursts are inferred. Inspect warnings, latency and DSP/LUT/FF/BRAM reports. Check the generated register offsets against the README/runner.
+- [x] C simulation, Verilog RTL co-simulation (60 transactions) and IP export pass; verified from the supplied export log. No rerun needed for unchanged source/configuration.
+- [x] Synthesis reports reviewed: 128-bit interface, read-loop II=1, burst inference and matching register offsets; resource/timing estimates recorded in the validation document.
 
 Return: complete failing logs if any; otherwise the synthesis report and co-simulation summary. Do not label this step a board bandwidth result.
 
@@ -56,12 +113,12 @@ Return: complete failing logs if any; otherwise the synthesis report and co-simu
 Use the exact PS configuration or board part confirmed in step 2. For example:
 
 ```bash
-SOC_BW_PS_CONFIG=/absolute/path/ultra96v2_ps.tcl \
+SOC_BW_BUILD_STAGE=bd SOC_BW_PS_CONFIG=/absolute/path/ultra96v2_ps.tcl \
 SOC_BW_MHZ=150 SOC_BW_BURST=64 SOC_BW_OUTSTANDING=8 \
     vivado -mode batch -source soc/hw/bw_test/build_vivado.tcl
 ```
 
-- [ ] Block-design validation, synthesis and implementation complete.
+- [ ] First run `bd` and verify block-design validation. Then run `bitstream` with the same settings and verify synthesis/implementation complete. Preserve logs before the generated project is recreated.
 - [ ] Setup/hold timing pass; review unconstrained paths and DRC warnings.
 - [ ] Matching `bw_test_f150_b64_o8.bit` and `.hwh` exist under `soc/hw/out/`.
 
@@ -135,5 +192,5 @@ Reference locations: `reference/lab3_handout_text.txt`, `reference/lab3_report_t
 
 - PRD and requirement-to-test traceability: v0.1 now drafted in `PRD.md`.
 - Early ASIC area/power envelope, with estimates and uncertainty clearly marked (P1.3).
-- Provisional GEMV arithmetic/kernel and golden-reference testbench (P3.1/P3.2), retaining the current Q8_0 layout and backend boundary. Native tests should accompany that source work.
+- GEMV v1 source and native golden tests are now implemented; review the LRC GEMV C/synthesis/RTL results next (P3.1/P3.2/P3.3). Retain the current Q8_0 layout and backend boundary while optimizing from evidence.
 - Final lane count, clock, DMA allocation strategy and board HAL depend on the measurements and access mechanism above. Do not mark architecture gates passed or final hardware validated before that evidence arrives.

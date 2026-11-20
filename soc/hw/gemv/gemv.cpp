@@ -74,8 +74,6 @@ void soc_gemv_hw(const soc_gemv_word * w_quants, const uint16_t * w_scales,
 
     soc_gemv_word x_words[2 * SOC_GEMV_HW_MAX_NB];
     float x_scales[SOC_GEMV_HW_MAX_NB];
-    uint16_t row_scale_bits[SOC_GEMV_HW_MAX_NB];
-    float row_scales[SOC_GEMV_HW_MAX_NB];
 #ifndef SOC_GEMV_HW_HOST
 #pragma HLS BIND_STORAGE variable=x_words type=ram_1p impl=bram
 #endif
@@ -97,6 +95,9 @@ load_x:
         }
     }
 
+#if SOC_GEMV_HW_ROW_INTERLEAVE == 1
+    uint16_t row_scale_bits[SOC_GEMV_HW_MAX_NB];
+    float row_scales[SOC_GEMV_HW_MAX_NB];
 rows_loop:
     for (uint32_t row = 0; row < rows; ++row) {
         uint32_t block_base = row * nb;
@@ -145,4 +146,104 @@ read_words:
         }
         y[row] = sumf;
     }
+#else
+    // Eight independent rows share one 16-product datapath. Buffer contiguous
+    // row segments first, then consume them in round-robin order locally.
+    const uint32_t ROWS = SOC_GEMV_HW_ROW_INTERLEAVE;
+    const uint32_t BLOCKS = 32; // 64 quant beats per row, matching the default burst.
+    soc_gemv_word quant_tile[ROWS][2 * BLOCKS];
+    uint16_t scale_bits[ROWS][BLOCKS];
+    float scale_tile[ROWS][BLOCKS];
+    float accum[ROWS];
+    int32_t first_half[ROWS];
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS BIND_STORAGE variable=quant_tile type=ram_1p impl=bram
+#pragma HLS ARRAY_PARTITION variable=accum complete
+#pragma HLS ARRAY_PARTITION variable=first_half complete
+#endif
+row_groups:
+    for (uint32_t row_base = 0; row_base < rows; row_base += ROWS) {
+        uint32_t active_rows = rows - row_base;
+        if (active_rows > ROWS) active_rows = ROWS;
+        for (uint32_t lane = 0; lane < ROWS; ++lane) {
+            accum[lane] = 0.0f;
+            first_half[lane] = 0;
+        }
+block_tiles:
+        for (uint32_t block_base = 0; block_base < nb; block_base += BLOCKS) {
+            uint32_t blocks = nb - block_base;
+            if (blocks > BLOCKS) blocks = BLOCKS;
+load_tile_rows:
+            for (uint32_t lane = 0; lane < active_rows; ++lane) {
+                uint32_t base = (row_base + lane) * nb + block_base;
+load_tile_scales:
+                for (uint32_t b = 0; b < blocks; ++b) {
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+                    scale_bits[lane][b] = w_scales[base + b];
+                }
+convert_tile_scales:
+                for (uint32_t b = 0; b < blocks; ++b) {
+                    uint16_t bits = scale_bits[lane][b];
+                    if (!finite_half(bits)) {
+                        status = SOC_GEMV_HW_BAD_W_SCALE;
+                        return;
+                    }
+                    scale_tile[lane][b] = dot_half_to_float(bits);
+                }
+load_tile_words:
+                for (uint32_t beat = 0; beat < 2 * blocks; ++beat) {
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+                    quant_tile[lane][beat] = w_quants[2 * base + beat];
+                }
+            }
+interleave_words:
+            for (uint32_t slot = 0; slot < 2 * blocks * ROWS; ++slot) {
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+                uint32_t lane = slot % ROWS;
+                uint32_t beat = slot / ROWS;
+                // Rotate on every slot, including inactive lanes in a tail group.
+                // After eight rotations each row returns to its original slot.
+                // The FP feedback travels through eight distinct registers; no
+                // false-dependence directive hides the real accumulator feedback.
+                float next = accum[0];
+                if (lane < active_rows) {
+                    int32_t part = dot_beat(quant_tile[lane][beat],
+                                           x_words[2 * block_base + beat]);
+                    if ((beat & 1) == 0) {
+                        first_half[lane] = part;
+                    } else {
+                        int32_t sumi = first_half[lane] + part;
+                        uint32_t b = beat / 2;
+                        float scale_product = scale_tile[lane][b] * x_scales[block_base + b];
+                        float term = (float) sumi * scale_product;
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS BIND_OP variable=scale_product op=fmul
+#pragma HLS BIND_OP variable=term op=fmul
+#pragma HLS BIND_OP variable=next op=fadd
+#endif
+                        next = next + term;
+                    }
+                }
+                for (uint32_t i = 0; i < ROWS - 1; ++i) {
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS UNROLL
+#endif
+                    accum[i] = accum[i + 1];
+                }
+                accum[ROWS - 1] = next;
+            }
+        }
+write_rows:
+        for (uint32_t lane = 0; lane < active_rows; ++lane) {
+            y[row_base + lane] = accum[lane];
+        }
+    }
+#endif
+
 }

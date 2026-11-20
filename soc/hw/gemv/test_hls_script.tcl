@@ -4,6 +4,7 @@ foreach name [array names ::env SOC_GEMV_HW_*] { unset ::env($name) }
 set ::env(SOC_GEMV_HW_STAGE) csim
 set fp_options {}
 set ran_csim 0
+set project_names {}
 
 proc config_compile {args} {
     if {[llength $args] != 1 || [lindex $args 0] ni {
@@ -17,6 +18,7 @@ if {![catch {config_compile -unsafe_math_optimizations false}]} {
     error "Regression guard accepted the old Boolean syntax"
 }
 proc open_project {args} {
+    lappend ::project_names [lindex $args end]
     if {[string first / [lindex $args end]] >= 0} { error "Project name contains a slash" }
 }
 proc add_files {args} {
@@ -60,4 +62,12 @@ proc cosim_design {args} {
 }
 source $script
 if {!$ran_cosim} { error "Missing RTL co-simulation dispatch" }
+# Baseline and candidate must not reset the same generated project.
+set ::env(SOC_GEMV_HW_ROW_INTERLEAVE) 1
+source $script
+if {$project_names ne {f150_b64_o8_r8 f150_b64_o8_r8 f150_b64_o8}} {
+    error "Baseline/candidate project separation failed: $project_names"
+}
+set ::env(SOC_GEMV_HW_ROW_INTERLEAVE) 3
+if {![catch {source $script}]} { error "Accepted unsupported interleave count" }
 puts "HLS script regression: PASS (vendor commands mocked)"

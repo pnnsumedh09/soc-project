@@ -214,7 +214,9 @@ int main(int argc, char ** argv) {
         }
     }
     printf("Finite FP16 conversion comparison complete\n");
-    const uint32_t shapes[][2] = {{1, 1}, {3, 1}, {4, 3}, {7, 28}, {32, 28}, {9, 152}, {64, 152}};
+    // Exercise full/tail row groups and both sides of the 32-block tile boundary.
+    const uint32_t shapes[][2] = {{1, 1}, {3, 1}, {4, 3}, {7, 28}, {32, 28}, {9, 152}, {64, 152},
+                                  {8, 32}, {9, 33}, {17, 65}, {16, 64}, {15, 31}};
     for (unsigned p = 0; p < 6; ++p) {
         for (unsigned i = 0; i < sizeof(shapes) / sizeof(shapes[0]); ++i) {
             synthetic(shapes[i][0], shapes[i][1], p);
@@ -222,6 +224,14 @@ int main(int argc, char ** argv) {
     }
     bad_shapes();
     nonfinite_scales();
+    // Reject an invalid scale after both a row-group and block-tile boundary.
+    {
+        std::vector<uint8_t> w(9 * 33 * 34), x(33 * 34);
+        fill_blocks(w, 9 * 33, 2, false);
+        fill_blocks(x, 33, 2, true);
+        put_half(w.data() + (8 * 33 + 32) * 34, 0x7e00);
+        check_matrix("nonfinite tail tile scale", w, x, 9, 33, SOC_GEMV_HW_BAD_W_SCALE);
+    }
 #ifdef SOC_GEMV_HW_HOST
     synthetic(SOC_GEMV_HW_MAX_ROWS, 1, 2);
 #endif

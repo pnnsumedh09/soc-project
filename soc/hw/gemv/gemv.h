@@ -10,6 +10,13 @@ typedef unsigned __int128 soc_gemv_word;
 typedef ap_uint<128> soc_gemv_word;
 #endif
 
+// 1 retains the verified sequential baseline; 8 enables row interleaving.
+#ifndef SOC_GEMV_HW_ROW_INTERLEAVE
+#define SOC_GEMV_HW_ROW_INTERLEAVE 8
+#endif
+static_assert(SOC_GEMV_HW_ROW_INTERLEAVE == 1 || SOC_GEMV_HW_ROW_INTERLEAVE == 8,
+              "Select the baseline (1) or eight-row interleaving (8)");
+
 enum {
     SOC_GEMV_HW_MAX_NB = 152,
     SOC_GEMV_HW_MAX_ROWS = 151936,
