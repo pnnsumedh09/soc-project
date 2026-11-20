@@ -47,7 +47,7 @@ This file maps every document in the project. When transferring context to anoth
 | 8c | `soc/docs/results/hls_gemv_f150_b64_o8_v1.md` | First GEMV synthesis baseline, achieved II, ports, resources, warnings and next checks. | Reviewed; II=5 misses target 1; baseline RTL passes |
 | 8d | `soc/docs/results/hls_gemv_f150_b64_o8_r8.md` | Eight-row interleaving candidate, tile/accumulator design and expanded local checks. | Native/real-slice/UBSan and Vitis C pass; compute II=1; candidate RTL passes |
 | 8e | `soc/docs/results/p4_integration_source_validation.md` | P4.1/P4.2 source, local checks, adapter assumptions and remaining target boundaries. | Local checks pass; vendor/board checks pending |
-| 8f | `soc/docs/results/p4_register_test_source_validation.md` | Dedicated AXI-Lite RTL and board-readback test source and local checks. | Model/runner checks pass; actual RTL/board tests pending |
+| 8f | `soc/docs/results/p4_register_test_source_validation.md` | Dedicated AXI-Lite RTL and board-readback test source and local checks. | Model/runner and actual LRC RTL checks pass; board tests pending |
 | 9 | `soc/docs/results/baseline_300mhz.md` | 300 MHz single-core baseline speed and accuracy | TODO (P0.2) |
 | 10 | `soc/docs/results/model_sweep_300mhz.md` | Model/quant sweep results at 300 MHz | TODO (P0.3) |
 | 11 | `soc/docs/results/board_memory.md` | CMA, free memory, allocation sequence test | TODO (P0.6) |

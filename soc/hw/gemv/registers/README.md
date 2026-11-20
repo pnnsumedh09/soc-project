@@ -1,5 +1,7 @@
 # GEMV AXI-Lite register tests
 
+Actual LRC run verified on 2026-11-20: **PASS — 7,396 reads, 765 writes, 35,989 checks** (Vivado/xsim 2022.2). Board MMIO/DMA checks remain pending.
+
 These tests target the selected sequential kernel's **actual HLS-generated register bank** independently of the compute engine. They do not replace GEMV numerical tests, Vivado integration or board DMA/coherency testing.
 
 ## Standalone RTL simulation on LRC
@@ -45,7 +47,7 @@ The testbench drives synthetic ap_done/ap_ready/ap_idle/status/status_ap_vld inp
 
 ## Local checks versus actual RTL results
 
-No Verilog simulator is installed in the current local workspace. The new SystemVerilog test has not been compiled or run locally; actual LRC execution remains required. Local runner tests use fake tools only:
+No Verilog simulator is installed in the current local workspace. The SystemVerilog test was not run locally; actual LRC compilation/simulation has since passed. No repeat is required for unchanged sources. Local runner tests use fake tools only:
 
 ```sh
 python3 soc/hw/gemv/registers/test_runner.py

@@ -15,21 +15,11 @@ The default remains the simple sequential GEMV, with existing C/synthesis/RTL PA
 
 New source and local validation: `results/p4_integration_source_validation.md`, `../hw/vivado/gemv/README.md` and `../sw/hal2/README.md`. HAL/mock-control/arena/fallback/UBSan checks pass; both software-hook build variants retain exact emulation results. Vendor tools, target CMake build and real DMA have NOT been validated locally. The Linux adapter is optional because course-image UIO/allocator support is unknown.
 
-### New register-test boundary on LRC
+### Completed register RTL boundary
 
-Dedicated register tests are written. Portable C model tests and runner/failure-propagation checks pass; actual generated-bank RTL execution is pending. This test can proceed without a PS preset or board, in parallel with obtaining the configuration below.
+Actual Vivado/xsim 2022.2 log is now verified: `GEMV REGISTER RTL: PASS; reads=7396 writes=765 checks=35989`, completed 12:00:13 CST on 2026-11-20. No repeat of this test or kernel synthesis/co-simulation is needed for unchanged sources. Evidence: `results/p4_register_test_source_validation.md`.
 
-After pulling the new source with Xilinx 2022.2 tools loaded:
-
-```bash
-mkdir -p soc/docs/results/lrc_p4
-vivado -mode batch -source soc/hw/gemv/registers/test_rtl.tcl \
-    2>&1 | tee soc/docs/results/lrc_p4/register_rtl.log
-```
-
-Return the full log and require `GEMV REGISTER RTL: PASS; ...`. This uses existing generated `soc_gemv_hw_control_s_axi.v` only; no old kernel C/synthesis/co-simulation or packaging rerun is needed. It tests bus/register behavior with synthetic engine signals, not DMA/BRAM. See `../hw/gemv/registers/README.md`.
-
-Later, after RTL PASS and actual matching hardware/UIO/PS setup, run the separate `soc/sw/hal2/board_registers` utility before DMA bring-up. It saves/restores parameter words, never starts the engine and does not require a DMA allocator. Actual board readback remains pending.
+This validates the standalone generated AXI-Lite bank with synthetic engine events, not board MMIO/PS connectivity, DMA or internal BRAM. The next independent work remains obtaining the correct PS configuration and board discovery below. Once actual matching hardware/UIO/PS setup is ready, run `soc/sw/hal2/board_registers` before DMA bring-up. It saves/restores parameter words, never starts the engine and does not require a DMA allocator.
 
 ### On LRC now
 
