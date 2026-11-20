@@ -138,6 +138,8 @@ set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {1}] [get_bd_cells cont
 create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 memory_xbar
 set_property -dict [list CONFIG.NUM_SI {4} CONFIG.NUM_MI {1}] [get_bd_cells memory_xbar]
 create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 reset_0
+create_bd_cell -type ip -vlnv xilinx.com:ip:util_vector_logic:2.0 reset_inverter
+set_property -dict [list CONFIG.C_OPERATION {not} CONFIG.C_SIZE {1}] [get_bd_cells reset_inverter]
 create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 locked_0
 set_property CONFIG.CONST_VAL {1} [get_bd_cells locked_0]
 create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 zero_0
@@ -157,11 +159,12 @@ foreach pin {maxihpm0_fpd_aclk saxihp0_fpd_aclk} {
 foreach pin {gemv_0/ap_clk control_xbar/aclk memory_xbar/aclk reset_0/slowest_sync_clk} {
     connect_bd_net [get_bd_pins $ps/pl_clk0] [get_bd_pins $pin]
 }
-connect_bd_net [get_bd_pins $ps/pl_resetn0] [get_bd_pins reset_0/ext_reset_in]
+connect_bd_net [get_bd_pins $ps/pl_resetn0] [get_bd_pins reset_inverter/Op1]
+connect_bd_net [get_bd_pins reset_inverter/Res] [get_bd_pins reset_0/ext_reset_in]
 set reset_high [get_property CONFIG.C_EXT_RESET_HIGH [get_bd_cells reset_0]]
 puts "Inferred processor-system-reset external polarity (1=active-high): $reset_high"
-if {$reset_high ne "0"} {
-    error "PS pl_resetn0 is active-low, but proc_sys_reset did not infer C_EXT_RESET_HIGH=0"
+if {$reset_high ne "1"} {
+    error "Reset inverter produces active-high reset, but proc_sys_reset does not expect C_EXT_RESET_HIGH=1"
 }
 connect_bd_net [get_bd_pins locked_0/dout] [get_bd_pins reset_0/dcm_locked]
 foreach pin {aux_reset_in mb_debug_sys_rst} {

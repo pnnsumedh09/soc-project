@@ -29,7 +29,7 @@ proc get_board_parts {args} {
 }
 proc get_property {name object} {
     if {$name eq "CONFIG.C_EXT_RESET_HIGH" && $object eq "reset_0"} {
-        return 0
+        return 1
     }
     if {$name eq "PART_NAME" && [string match "avnet.com:ultra96v2:*" $object]} {
         return xczu3eg-sbva484-1-i
@@ -94,6 +94,10 @@ if {$bad} {
         }
         if {[lsearch -exact $connected_nets [list gemv_0/interrupt zynq_ultra_ps_e_0/pl_ps_irq0]] < 0} {
             error "Missing GEMV interrupt connection: $connected_nets"
+        }
+        if {[lsearch -exact $connected_nets [list zynq_ultra_ps_e_0/pl_resetn0 reset_inverter/Op1]] < 0 ||
+            [lsearch -exact $connected_nets [list reset_inverter/Res reset_0/ext_reset_in]] < 0} {
+            error "Missing explicit active-low to active-high reset conversion: $connected_nets"
         }
         foreach {port slot} {weights S00_AXI scales S01_AXI activation S02_AXI output_r S03_AXI} {
             if {[lsearch -exact $connected [list gemv_0/m_axi_$port memory_xbar/$slot]] < 0} {
