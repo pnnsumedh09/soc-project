@@ -104,7 +104,7 @@ if {$board_part ne ""} { set_property board_part $board_part [current_project] }
 set_property ip_repo_paths [list $ip_repo] [current_project]
 update_ip_catalog
 create_bd_design soc_gemv
-set ps [create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.3 zynq_ultra_ps_e_0]
+set ps [create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.4 zynq_ultra_ps_e_0]
 if {$board_part ne ""} {
     apply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e \
         -config {apply_board_preset "1"} $ps

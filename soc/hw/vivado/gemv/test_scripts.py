@@ -124,6 +124,10 @@ def main():
         vivado.mkdir(parents=True)
         hls.mkdir()
         shutil.copy(HERE / "build_vivado.tcl", vivado)
+        vivado_text = (vivado / "build_vivado.tcl").read_text()
+        if "xilinx.com:ip:zynq_ultra_ps_e:3.4" not in vivado_text or \
+           "xilinx.com:ip:zynq_ultra_ps_e:3.3" in vivado_text:
+            raise RuntimeError("Vivado 2022.2 Ultra96-V2 requires Zynq MPSoC IP version 3.4")
         for name in ("check_export.tcl", "export_existing.tcl"):
             shutil.copy(HLS / name, hls)
         solution = hw / "hls_work/gemv/f150_b64_o8/solution"
