@@ -9,20 +9,65 @@ set outstanding [setting SOC_BW_OUTSTANDING 8]
 set board_part [setting SOC_BW_BOARD_PART ""]
 set ps_config [setting SOC_BW_PS_CONFIG ""]
 set jobs [setting SOC_BW_JOBS 8]
+set stage [setting SOC_BW_BUILD_STAGE bd]
+set part [setting SOC_BW_PART xczu3eg-sbva484-1-e]
+set board_repo [setting SOC_BW_BOARD_REPO ""]
 if {$mhz ni {100 150 200} || $burst ni {1 4 16 64 256} ||
     ![string is integer -strict $outstanding] || $outstanding < 1 || $outstanding > 32 ||
     ![string is integer -strict $jobs] || $jobs < 1} {
     error "Invalid MHz, burst, outstanding request count, or job count"
 }
+if {$stage ni {check bd bitstream} || $part ni {xczu3eg-sbva484-1-e xczu3eg-sbva484-1-i}} {
+    error "Use SOC_BW_BUILD_STAGE=check/bd/bitstream and a supported SOC_BW_PART (-e or -i)"
+}
+set tag f${mhz}_b${burst}_o${outstanding}
+set ip_repo [file normalize "$here/../hls_work/bw_test/$tag/solution/impl/ip"]
+if {$board_repo ne ""} {
+    if {![file isdirectory $board_repo]} { error "Missing board repository: $board_repo" }
+    set_param board.repoPaths [concat [get_param board.repoPaths] [list [file normalize $board_repo]]]
+}
+puts "P1.1 Vivado stage: $stage; HLS configuration: $tag; target part: $part"
+puts "Installed Ultra96 board definitions:"
+set boards {}
+foreach board [get_board_parts -quiet *] {
+    if {[string match -nocase *ultra96* $board]} { lappend boards $board }
+}
+foreach board $boards { puts "  $board  part=[get_property PART_NAME $board]" }
+if {[llength $boards] == 0} {
+    puts "  None found. Supply the course PS configuration, or register board files using SOC_BW_BOARD_REPO."
+}
+if {![file isfile "$ip_repo/component.xml"]} {
+    error "Exported IP component.xml missing: $ip_repo (do not rerun HLS if the existing export can be restored here)"
+}
+set report [file normalize "$ip_repo/../../syn/report/soc_bw_read_csynth.xml"]
+if {![file isfile $report]} { error "Missing HLS target-part report: $report" }
+set stream [open $report r]
+set report_text [read $stream]
+close $stream
+if {![regexp {<Part>([^<]+)</Part>} $report_text -> hls_part]} { error "Cannot read target part from $report" }
+puts "Exported HLS report target: $hls_part"
+if {$hls_part ne $part} {
+    error "HLS target $hls_part differs from requested $part; resolve the actual board/course target before rebuilding"
+}
+if {$board_part ne ""} {
+    set selected [get_board_parts -quiet $board_part]
+    if {[llength $selected] != 1} { error "Board identifier must resolve to exactly one installed definition: $board_part" }
+    set board_device [get_property PART_NAME $selected]
+    if {$board_device ne $part} {
+        error "Board definition selects $board_device, but HLS selects $part. Use the matching course PS configuration or confirm the actual part before retargeting."
+    }
+}
+if {$stage eq "check"} {
+    puts "Exported HLS IP and target report found. No block design or bitstream generated."
+    puts "Next: select exactly one SOC_BW_BOARD_PART or SOC_BW_PS_CONFIG, then use SOC_BW_BUILD_STAGE=bd."
+    return
+}
 if {($board_part eq "") == ($ps_config eq "")} {
     error "Set exactly one of SOC_BW_BOARD_PART or SOC_BW_PS_CONFIG (see README.md)"
 }
 if {$ps_config ne "" && ![file isfile $ps_config]} { error "Missing PS configuration: $ps_config" }
-set tag f${mhz}_b${burst}_o${outstanding}
-set ip_repo [file normalize "$here/../hls_work/bw_test/$tag/solution/impl/ip"]
-if {![file isfile "$ip_repo/component.xml"]} { error "Export HLS IP first: $ip_repo" }
 set work [file normalize "$here/../vivado/bw_test_$tag"]
-create_project -force bw_test $work -part xczu3eg-sbva484-1-e
+create_project -force bw_test $work -part $part
 if {$board_part ne ""} { set_property board_part $board_part [current_project] }
 set_property ip_repo_paths [list $ip_repo] [current_project]
 update_ip_catalog
@@ -49,6 +94,8 @@ set_property -dict [list \
     CONFIG.PSU__USE__S_AXI_GP5 {0} \
     CONFIG.PSU__USE__S_AXI_GP6 {0} \
     CONFIG.PSU__SAXIGP2__DATA_WIDTH {128} \
+    CONFIG.PSU__USE__IRQ0 {0} \
+    CONFIG.PSU__USE__IRQ1 {0} \
     CONFIG.PSU__USE__FABRIC__RST {1} \
     CONFIG.PSU__FPGA_PL0_ENABLE {1} \
     CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ $mhz] $ps
@@ -95,6 +142,14 @@ foreach {axi probe} {ARVALID arvalid ARREADY arready RVALID rvalid RREADY rready
 assign_bd_address
 validate_bd_design
 save_bd_design
+write_bd_tcl -force "$work/soc_bw_bd.tcl"
+assign_bd_address -export_to_file "$work/address_map.csv" -force
+if {$stage eq "bd"} {
+    puts "P1.1 block design validated and saved: $work"
+    puts "Next: rerun with the same configuration and SOC_BW_BUILD_STAGE=bitstream."
+    close_project
+    return
+}
 set bd [get_files */soc_bw.bd]
 generate_target all $bd
 set wrapper [make_wrapper -files $bd -top]
