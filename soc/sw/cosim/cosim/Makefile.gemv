@@ -1,0 +1,19 @@
+include Makefile
+
+CPPFLAGS += -I.
+CXXFLAGS += -std=c++14 -Wno-overloaded-virtual -ffp-contract=off
+CFLAGS += -std=c11 -ffp-contract=off
+
+GEMV_OBJS := zynqmp_gemv.o gemv_accel.o soc_repack.o \
+             $(filter-out %mcdma.o %mrmac.o, $(OBJS))
+
+zynqmp_gemv: $(GEMV_OBJS) $(VTOP_LIB) $(VERILATED_O)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+gemv_accel.o: gemv_accel.cpp gemv_accel.h gemv_regs.h soc_repack.h
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+soc_repack.o: soc_repack.c soc_repack.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+.PHONY: zynqmp_gemv
