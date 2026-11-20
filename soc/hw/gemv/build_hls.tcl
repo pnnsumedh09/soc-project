@@ -7,7 +7,7 @@ proc setting {name fallback} {
 set mhz [setting SOC_GEMV_HW_MHZ 150]
 set burst [setting SOC_GEMV_HW_BURST 64]
 set outstanding [setting SOC_GEMV_HW_OUTSTANDING 8]
-set interleave [setting SOC_GEMV_HW_ROW_INTERLEAVE 8]
+set interleave [setting SOC_GEMV_HW_ROW_INTERLEAVE 1]
 set stage [setting SOC_GEMV_HW_STAGE csim]
 set part [setting SOC_GEMV_HW_PART xczu3eg-sbva484-1-e]
 set host_cc [setting SOC_GEMV_HW_CC cc]

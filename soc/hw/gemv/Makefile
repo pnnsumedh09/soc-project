@@ -4,7 +4,7 @@ CFLAGS ?= -O2 -g
 CXXFLAGS ?= -O2 -g
 COMMON_FLAGS = -Wall -Wextra -ffp-contract=off
 INCLUDES = -I../../sw/repack -I../../lab3_ref/part3
-ROW_INTERLEAVE ?= 8
+ROW_INTERLEAVE ?= 1
 MODEL ?= ../../../../qwen2.5-0.5b-instruct-q8_0.gguf
 DUMPDIR ?= /tmp/soc_gemv_tensors
 

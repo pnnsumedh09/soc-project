@@ -1,12 +1,18 @@
 # P3.1: Q8_0 GEMV HLS kernel v1
 
-Status: the sequential baseline (`SOC_GEMV_HW_ROW_INTERLEAVE=1`) passed Vitis C simulation and Verilog co-simulation on LRC (54 calls, 720 rows, zero error); synthesis achieved main II=5 with 9,317 LUT/6,210 FF/12 DSP/7 BRAM_18K. The new default eight-row candidate has passed native golden tests and UBSan, including real Qwen slices. Candidate Vitis C simulation now passes (85 calls, 1,110 rows, zero error); synthesis achieves compute II=1/depth=22 with 12,580 LUT/10,660 FF/22 DSP/11 BRAM_18K. Candidate Verilog co-simulation also passes (85 calls, 1,110 rows, zero error); 64 rows × 4,864 inputs takes 88,596 simulated cycles (590.64 µs at configured 150 MHz). Baseline results do not validate the changed candidate or establish implemented timing/bandwidth.
+Status: the sequential baseline (`SOC_GEMV_HW_ROW_INTERLEAVE=1`) passed Vitis C simulation and Verilog co-simulation on LRC (54 calls, 720 rows, zero error); synthesis achieved main II=5 with 9,317 LUT/6,210 FF/12 DSP/7 BRAM_18K. The optional eight-row experiment has passed native golden tests and UBSan, including real Qwen slices. Candidate Vitis C simulation now passes (85 calls, 1,110 rows, zero error); synthesis achieves compute II=1/depth=22 with 12,580 LUT/10,660 FF/22 DSP/11 BRAM_18K. Candidate Verilog co-simulation also passes (85 calls, 1,110 rows, zero error); 64 rows × 4,864 inputs takes 88,596 simulated cycles (590.64 µs at configured 150 MHz). Baseline results do not validate the changed candidate or establish implemented timing/bandwidth.
+
+## Current default: sequential direct weight reads
+
+At Sumedh's request, row interleaving and additional double-buffering work are deferred. The default is now `SOC_GEMV_HW_ROW_INTERLEAVE=1` in the header, native Makefile and HLS script. The kernel caches x once, reads/converts one row's scales, then reads weights directly in its compute loop and writes one completed scalar before starting the next row. No quant tile or rotating eight-row accumulator is instantiated in this configuration. Existing baseline Vitis evidence remains applicable: compute II=5, bounded C/RTL PASS. Changing defaults does not improve that II.
+
+The verified r8 experiment is retained behind explicit selection for comparison; its results do not describe the default kernel. No baseline Vitis rerun is required for this selection-only change. HLS examples below referring to `ROW_INTERLEAVE=8` are optional experimental commands, not the current handoff.
 
 ## Data path and row interleaving
 
 `soc_gemv_hw` computes `y = W x` using the existing split quant/scale weights and native Q8_0 activations. Input quant values are cached in BRAM once per call; FP16 scales use the unchanged Lab 2/3 conversion.
 
-The default candidate processes eight rows per group and 32 Q8_0 blocks per tile:
+The optional eight-row experiment processes eight rows per group and 32 Q8_0 blocks per tile:
 
 1. `load_tile_rows` reads each active row's scales and up to 64 contiguous 128-bit quant beats. Row-major external memory and the existing repack format are unchanged.
 2. `interleave_words` processes beat 0 for rows 0..7, then beat 1 for rows 0..7, and so on. Each slot calls the existing 16-product `dot_beat` once; this does not request eight replicated dot-product engines.
@@ -103,7 +109,7 @@ SOC_GEMV_HW_ROW_INTERLEAVE=8 SOC_GEMV_HW_STAGE=csim vitis_hls -f soc/hw/gemv/bui
 
 Expected testbench summary: `GEMV HW: PASS`, 85 calls, 1,110 successful output rows, zero failures. Stop on failure and preserve the complete log. This is a new kernel; the completed P1.1 simulations do not replace this test. No board definition, bitstream or QEMU setup is required for this boundary.
 
-After C simulation passes, `SOC_GEMV_HW_STAGE=synth` runs synthesis; `cosim` additionally runs Verilog co-simulation; `export` additionally packages IP. The default stage is `csim`. Optional knobs are `SOC_GEMV_HW_MHZ=100/150/200`, `SOC_GEMV_HW_BURST=1/4/16/64/256`, `SOC_GEMV_HW_OUTSTANDING=1..32` and `SOC_GEMV_HW_PART=xczu3eg-sbva484-1-e` (default; -i also supported after target confirmation). `SOC_GEMV_HW_ROW_INTERLEAVE=8` is the default candidate; `1` selects the sequential baseline. Candidate work is under `soc/hw/hls_work/gemv/f150_b64_o8_r8/`; baseline work retains `f150_b64_o8/`. rerunning a stage resets that configuration, so retain logs first. It does not reset the separate P1.1 bandwidth project.
+After C simulation passes, `SOC_GEMV_HW_STAGE=synth` runs synthesis; `cosim` additionally runs Verilog co-simulation; `export` additionally packages IP. The default stage is `csim`. Optional knobs are `SOC_GEMV_HW_MHZ=100/150/200`, `SOC_GEMV_HW_BURST=1/4/16/64/256`, `SOC_GEMV_HW_OUTSTANDING=1..32` and `SOC_GEMV_HW_PART=xczu3eg-sbva484-1-e` (default; -i also supported after target confirmation). `SOC_GEMV_HW_ROW_INTERLEAVE=1` is the default sequential kernel; `8` explicitly selects the deferred interleaving experiment. Candidate work is under `soc/hw/hls_work/gemv/f150_b64_o8_r8/`; baseline work retains `f150_b64_o8/`. rerunning a stage resets that configuration, so retain logs first. It does not reset the separate P1.1 bandwidth project.
 
 Before promoting the kernel, review the achieved loop II, inferred quants/scales bursts, FP operator binding (separate fmul/fadd), port widths, resources and clock estimate; then require RTL co-simulation agreement. If the loop cannot meet II=1, treat its achieved schedule as the v1 baseline and optimize from the evidence. Board bandwidth, memory and ASIC gates remain pending.
 

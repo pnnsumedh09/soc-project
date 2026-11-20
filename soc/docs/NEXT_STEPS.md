@@ -9,17 +9,13 @@ Updated: 2026-11-20. Working checklist for the current handoff. `../../SOC_PROJE
 - GEMV engine (P3.1): provisional kernel, HLS script and starter testbench exist in `../hw/gemv/`. Local golden synthetic/real-slice tests pass; Vitis C simulation passes and synthesis is reviewed; baseline Verilog C/RTL co-simulation passes; the new eight-row candidate is locally tested, with vendor checks pending.
 - PRD v0.1 (P0.7): drafted in `PRD.md`; model selection and hardware feasibility are explicitly provisional.
 
-## Current focus: eight-row GEMV candidate (P3.3)
+## Current focus: simple sequential GEMV kernel
 
-The sequential baseline passed Vitis C simulation and Verilog co-simulation (54 calls, 720 rows, zero error); preserve its existing `f150_b64_o8` project and reports. No repeat of that unchanged baseline is needed.
+Sumedh requested deferring row interleaving and double buffering. The default kernel is restored to `SOC_GEMV_HW_ROW_INTERLEAVE=1`: cache x, process one row at a time, read quant weights directly in the compute loop, then write that row's scalar. Header, native build and HLS defaults agree. The tested r8 experiment remains available only through explicit selection, with its artifacts retained for reference.
 
-The eight-row candidate now passes Vitis C simulation (85 calls, 1,110 rows, zero error) and synthesis review. `interleave_words` achieved II=1/depth=22 versus baseline II=5. Candidate estimates: 12,580 LUT, 10,660 FF, 22 DSP and 11 BRAM_18K. Burst reads and output burst writes are inferred. Whole-kernel speedup is unmeasured; see `results/hls_gemv_f150_b64_o8_r8.md`.
+The unchanged sequential datapath already passed baseline Vitis C/RTL checks; its compute II remains 5. There is no new LRC test to run for restoring this selection. No row-interleaving or DATAFLOW/double-buffer implementation work is scheduled now. Simpler future experiments could change the loop to operate on complete Q8_0 blocks or examine a wider datapath; neither is implemented or claimed to remove the FP recurrence.
 
-The candidate's RTL co-simulation is now verified from `project/lrc/gemv_r8_review.tar.gz`: Verilog PASS, 85 calls, 1,110 rows, max absolute error 0, no failures. No repeat or further LRC command is needed for the unchanged candidate.
-
-Recorded per-call cycle counts in `results/hls_gemv_f150_b64_o8_r8.md`. Examples at configured 150 MHz: 32 rows × 896 inputs = 9,244 cycles (61.627 µs); 64 rows × 4,864 inputs = 88,596 cycles (590.640 µs). These are simulated transaction times, not board throughput. The reports do not break down loading versus computation.
-
-Next independent work is to retain r8 as a verified comparison point and design the next performance experiment. Overlapping tile reads with compute using double buffering is a candidate; exact phase attribution would require waveform analysis or profiling. Compare total latency, numerical correctness and resources for each changed design. Board/ASIC gates and the third P3.3 design alternative remain pending.
+Both existing designs and the r8 transaction timings are documented in `results/hls_gemv_f150_b64_o8_v1.md` and `results/hls_gemv_f150_b64_o8_r8.md`. Board integration, hardware throughput, further P3.3 alternatives and ASIC gates remain pending.
 
 ### Completed C-simulation instructions (reference)
 

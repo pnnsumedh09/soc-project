@@ -1,5 +1,8 @@
 # SoC Project Documentation Index
 
+Current GEMV selection: sequential direct weight-read kernel (`ROW_INTERLEAVE=1`) is the default. Row interleaving and double-buffering work are deferred at Sumedh's request; the verified r8 experiment and its results are retained for reference.
+
+
 **Project:** ECE382M.20 Edge LLM Inference SoC — GEMV Acceleration
 **Due:** 2026-12-08
 **Platform:** Ultra96 (Zynq UltraScale+ ZU3EG), ARM A53 + FPGA
