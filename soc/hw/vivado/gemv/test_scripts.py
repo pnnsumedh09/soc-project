@@ -12,23 +12,43 @@ set script [lindex $argv 0]
 set case [lindex $argv 1]
 set env(SOC_GEMV_BUILD_STAGE) check
 set created 0
+set project_args {}
 set connected {}
+set connected_nets {}
 set offsets {}
 set exported 0
 set props {}
-proc get_board_parts {args} { return {} }
-proc create_project {args} { incr ::created }
+proc get_board_parts {args} {
+    if {[info exists ::env(SOC_GEMV_BOARD_PART)]} {
+        set requested [lindex $args end]
+        if {$requested eq "*" || $requested eq $::env(SOC_GEMV_BOARD_PART)} {
+            return [list $::env(SOC_GEMV_BOARD_PART)]
+        }
+    }
+    return {}
+}
+proc get_property {name object} {
+    if {$name eq "PART_NAME" && [string match "avnet.com:ultra96v2:*" $object]} {
+        return xczu3eg-sbva484-1-i
+    }
+    if {$name eq "PART_NAME" && [string match "example.com:wrong:*" $object]} {
+        return xczu3eg-sbva484-2-i
+    }
+    error "Unexpected property request: $name $object"
+}
+proc create_project {args} { incr ::created; set ::project_args $args }
 proc create_bd_cell {args} { return [lindex $args end] }
 foreach cmd {current_project current_fileset get_bd_cells get_bd_intf_pins get_bd_pins get_bd_addr_spaces get_bd_addr_segs} {
     proc $cmd {args} { return [lindex $args end] }
 }
 proc set_property {args} { lappend ::props $args }
 proc connect_bd_intf_net {args} { lappend ::connected $args }
+proc connect_bd_net {args} { lappend ::connected_nets $args }
 proc assign_bd_address {args} {
     set i [lsearch -exact $args -offset]
     if {$i >= 0} { lappend ::offsets [lindex $args [expr {$i+1}]] }
 }
-foreach cmd {update_ip_catalog create_bd_design connect_bd_net validate_bd_design save_bd_design write_bd_tcl close_project} {
+foreach cmd {update_ip_catalog create_bd_design apply_bd_automation validate_bd_design save_bd_design write_bd_tcl close_project} {
     proc $cmd {args} {}
 }
 proc open_project {args} {
@@ -42,10 +62,20 @@ foreach cmd {csim_design csynth_design cosim_design} {
 rename exit real_exit
 proc exit {args} {}
 if {$case eq "bd"} { set env(SOC_GEMV_BUILD_STAGE) bd }
+if {$case eq "board_v2"} {
+    set env(SOC_GEMV_BUILD_STAGE) bd
+    set env(SOC_GEMV_BOARD_PART) avnet.com:ultra96v2:part0:1.2
+    unset -nocomplain env(SOC_GEMV_PS_CONFIG)
+}
+if {$case eq "board_wrong"} {
+    set env(SOC_GEMV_BUILD_STAGE) bd
+    set env(SOC_GEMV_BOARD_PART) example.com:wrong:part0:1.0
+    unset -nocomplain env(SOC_GEMV_PS_CONFIG)
+}
 if {$case eq "no_ps"} { set env(SOC_GEMV_BUILD_STAGE) bd; unset env(SOC_GEMV_PS_CONFIG) }
 if {$case eq "bad_base"} { set env(SOC_GEMV_CONTROL_BASE) 0xa0000001 }
 if {$case eq "r8"} { set env(SOC_GEMV_HW_ROW_INTERLEAVE) 8 }
-set bad [expr {$case in {no_ps bad_base r8 bad_abi bad_header bad_part bad_clock}}]
+set bad [expr {$case in {no_ps bad_base r8 bad_abi bad_header bad_part bad_clock board_wrong}}]
 set failed [catch {source $script} message]
 if {$bad} {
     if {!$failed || $created != 0} { error "Guard failed: $case / $message" }
@@ -54,9 +84,12 @@ if {$bad} {
     if {$failed} { error $message }
     if {$case eq "check" && $created != 0} { error "Preflight created a project" }
     if {$case eq "export" && !$exported} { error "Did not package existing RTL" }
-    if {$case eq "bd"} {
+    if {$case in {bd board_v2}} {
         if {$created != 1 || [llength $connected] != 7 || $offsets ne {0xA0000000}} {
             error "Unexpected AXI topology/address map: $connected / $offsets"
+        }
+        if {[lsearch -exact $connected_nets [list gemv_0/interrupt zynq_ultra_ps_e_0/pl_ps_irq0]] < 0} {
+            error "Missing GEMV interrupt connection: $connected_nets"
         }
         foreach {port slot} {weights S00_AXI scales S01_AXI activation S02_AXI output_r S03_AXI} {
             if {[lsearch -exact $connected [list gemv_0/m_axi_$port memory_xbar/$slot]] < 0} {
@@ -69,6 +102,13 @@ if {$bad} {
                 [dict get [lindex $p 1] CONFIG.NUM_SI] == 4} { set found 1 }
         }
         if {!$found} { error "Expected four memory masters" }
+        if {$case eq "board_v2"} {
+            set part_index [lsearch -exact $project_args -part]
+            if {$part_index < 0 ||
+                [lindex $project_args [expr {$part_index + 1}]] ne "xczu3eg-sbva484-1-i"} {
+                error "Ultra96-V2 project did not select the board device: $project_args"
+            }
+        }
     }
     puts "Stage $case PASS (vendor commands mocked)"
 }
@@ -116,7 +156,7 @@ def main():
         import os
         env = {k:v for k,v in os.environ.items() if not k.startswith("SOC_GEMV_")}
         env["SOC_GEMV_PS_CONFIG"] = str(ps)
-        for case in ("check", "bd", "no_ps", "bad_base", "r8", "bad_abi", "bad_header", "bad_part", "bad_clock", "export"):
+        for case in ("check", "bd", "board_v2", "board_wrong", "no_ps", "bad_base", "r8", "bad_abi", "bad_header", "bad_part", "bad_clock", "export"):
             header.write_text(abi.replace("STATUS_DATA 0x60", "STATUS_DATA 0x68") if case=="bad_abi" else abi)
             if case == "bad_header": header.unlink()
             current_xml = xml.replace("-1-e", "-1-i") if case=="bad_part" else xml

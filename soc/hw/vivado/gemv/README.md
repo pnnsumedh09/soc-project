@@ -1,12 +1,12 @@
 # P4.1: sequential GEMV Vivado integration
 
-Source written; local Tcl guard/topology checks use mocked vendor commands. No actual Vivado block-design validation, implementation, routed timing or board execution has been performed here. No Ultra96 PS/DDR preset is invented. The previously observed course target is `xczu3eg-sbva484-1-e`; installed Avnet definitions may select `-i`, which must be resolved before retargeting.
+Source written; local Tcl guard/topology checks use mocked vendor commands. No actual Vivado block-design validation, implementation, routed timing or board execution has been performed here. The course tutorial and actual LRC discovery establish the Avnet Ultra96-V2 preset: HLS remains `xczu3eg-sbva484-1-e`, while Vivado creates the board project for `xczu3eg-sbva484-1-i`. The script permits only this documented Avnet Ultra96-V2 mismatch; it does not retarget or rebuild the HLS IP.
 
 ## Topology
 
 - PS `M_AXI_HPM0_FPD` → 1×1 control SmartConnect → GEMV `s_axi_control`.
 - GEMV `m_axi_weights`, `m_axi_scales`, `m_axi_activation`, `m_axi_output_r` → 4×1 memory SmartConnect → PS noncoherent `S_AXI_HP0_FPD` at 128 bits.
-- PL clock drives IP, interconnect and PS AXI clock inputs; `proc_sys_reset` distributes synchronous active-low resets. Polling completion; no IRQ connection.
+- PL clock drives IP, interconnect and PS AXI clock inputs; `proc_sys_reset` distributes synchronous active-low resets. GEMV `interrupt` connects to PS `pl_ps_irq0`; polling remains usable for initial bring-up.
 - Control bank explicitly assigned 64 KiB at `0xA0000000` by default. Automatic memory address assignment, `validate_bd_design`, saved BD Tcl and exported address map.
 - Bitstream stage runs implementation, requires both setup/hold timing checks to pass and exports matching BIT/HWH/XSA under `soc/hw/out/`.
 
@@ -39,12 +39,19 @@ Enable your shell's pipeline-failure handling if supported (`set -o pipefail` in
 
 ## 3. Validate the block design using verified PS settings
 
+The verified LRC board-store selection is:
+
+```sh
+SOC_GEMV_BOARD_REPO=/misc/scratch/np26753/project/XilinxBoardStore/boards/Avnet
+SOC_GEMV_BOARD_PART=avnet.com:ultra96v2:part0:1.2
+```
+
 Set exactly one of:
 
-- `SOC_GEMV_BOARD_PART`: an installed board identifier selecting the same FPGA part as HLS, or
+- `SOC_GEMV_BOARD_PART`: an installed board identifier. Exact part equality is required except for the tutorial-approved Avnet Ultra96-V2 HLS `-e` / board `-i` pairing, or
 - `SOC_GEMV_PS_CONFIG`: a course-provided Tcl file configuring the existing `$ps` cell (DDR, MIO and PS settings), not creating a second PS or replacing the whole design.
 
-Then set `SOC_GEMV_BUILD_STAGE=bd` on the same Vivado command. Optional `SOC_GEMV_BOARD_REPO` registers board files. The preset's part must match; do not silently switch HLS targets. No valid choice is known in this checkout yet.
+Then set `SOC_GEMV_BUILD_STAGE=bd` on the same Vivado command. Optional `SOC_GEMV_BOARD_REPO` registers board files. Run `bd` and review the log, generated `address_map.csv` and `soc_gemv_bd.tcl` before requesting `bitstream`. Do not set `SOC_GEMV_HW_PART=-i`; the exported IP and report remain `-e`, as instructed by the course tutorial.
 
 Keep the validated design's address map. Only then use `SOC_GEMV_BUILD_STAGE=bitstream` with the same settings. Work is `soc/hw/vivado/gemv_f150_b64_o8/`; this script recreates that generated project for each BD/build stage. Source scripts live separately in `soc/hw/vivado/gemv/`.
 

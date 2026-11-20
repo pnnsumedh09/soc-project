@@ -69,13 +69,25 @@ if {[string first "interleave_words" $schedule] >= 0 ||
 if {$hls_part ne $part} {
     error "HLS target $hls_part differs from requested $part; resolve the actual board/course target before rebuilding"
 }
+set project_part $part
 if {$board_part ne ""} {
     set selected [get_board_parts -quiet $board_part]
     if {[llength $selected] != 1} { error "Board identifier must resolve to exactly one installed definition: $board_part" }
     set board_device [get_property PART_NAME $selected]
     if {$board_device ne $part} {
-        error "Board definition selects $board_device, but HLS selects $part. Use the matching course PS configuration or confirm the actual part before retargeting."
+        # The Fall 2026 course board tutorial explicitly builds HLS for the
+        # commercial -e part and creates the Ultra96-V2 Vivado project with
+        # Avnet's industrial -i board definition.  Permit only that documented
+        # speed/temperature-grade pairing; all other mismatches remain errors.
+        if {$part eq "xczu3eg-sbva484-1-e" &&
+            $board_device eq "xczu3eg-sbva484-1-i" &&
+            [string match -nocase "avnet.com:ultra96v2:*" $board_part]} {
+            puts "Course-approved Ultra96-V2 pairing: HLS target $part; Vivado board device $board_device"
+        } else {
+            error "Board definition selects $board_device, but HLS selects $part; only the documented Avnet Ultra96-V2 -e/-i pairing is accepted"
+        }
     }
+    set project_part $board_device
 }
 if {$stage eq "check"} {
     puts "Exported HLS IP and target report found. No block design or bitstream generated."
@@ -87,7 +99,7 @@ if {($board_part eq "") == ($ps_config eq "")} {
 }
 if {$ps_config ne "" && ![file isfile $ps_config]} { error "Missing PS configuration: $ps_config" }
 set work [file normalize "$here/../gemv_$tag"]
-create_project -force gemv $work -part $part
+create_project -force gemv $work -part $project_part
 if {$board_part ne ""} { set_property board_part $board_part [current_project] }
 set_property ip_repo_paths [list $ip_repo] [current_project]
 update_ip_catalog
@@ -113,7 +125,7 @@ set_property -dict [list \
     CONFIG.PSU__USE__S_AXI_GP5 {0} \
     CONFIG.PSU__USE__S_AXI_GP6 {0} \
     CONFIG.PSU__SAXIGP2__DATA_WIDTH {128} \
-    CONFIG.PSU__USE__IRQ0 {0} \
+    CONFIG.PSU__USE__IRQ0 {1} \
     CONFIG.PSU__USE__IRQ1 {0} \
     CONFIG.PSU__USE__FABRIC__RST {1} \
     CONFIG.PSU__FPGA_PL0_ENABLE {1} \
@@ -154,6 +166,7 @@ foreach pin {aux_reset_in mb_debug_sys_rst} {
 foreach pin {gemv_0/ap_rst_n control_xbar/aresetn memory_xbar/aresetn} {
     connect_bd_net [get_bd_pins reset_0/peripheral_aresetn] [get_bd_pins $pin]
 }
+connect_bd_net [get_bd_pins gemv_0/interrupt] [get_bd_pins $ps/pl_ps_irq0]
 assign_bd_address -offset $base -range 64K \
     -target_address_space [get_bd_addr_spaces $ps/Data] \
     [get_bd_addr_segs gemv_0/s_axi_control/Reg] -force

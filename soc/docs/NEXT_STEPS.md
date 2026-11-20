@@ -25,12 +25,27 @@ This validates the standalone generated AXI-Lite bank with synthetic engine even
 
 Latest evidence: sequential IP packaging completed on yoshi at 11:36:30 CST, and the corrected Vivado preflight passed at 11:40:34 CST. The actual generated register map matches the HAL, target part/clock match and the sequential export is accepted. Do not repeat completed packaging or preflight for unchanged files.
 
-Vivado reports no installed Ultra96 board definitions. Before `SOC_GEMV_BUILD_STAGE=bd`, obtain exactly one verified configuration:
+Actual LRC discovery now finds the course board store at `/misc/scratch/np26753/project/XilinxBoardStore/boards/Avnet`, including `avnet.com:ultra96v2:part0:1.2` (`xczu3eg-sbva484-1-i`). The course tutorial explicitly builds HLS for `xczu3eg-sbva484-1-e` and creates the Vivado board project with the closely related `-i` board device. The integration script accepts only that documented Avnet Ultra96-V2 pairing and creates the project using the board device; no HLS retarget or rerun is required.
+
+After pulling the updated integration source, validate the block design without generating a bitstream:
+
+```bash
+set -o pipefail
+SOC_GEMV_BOARD_REPO=/misc/scratch/np26753/project/XilinxBoardStore/boards/Avnet \
+SOC_GEMV_BOARD_PART=avnet.com:ultra96v2:part0:1.2 \
+SOC_GEMV_BUILD_STAGE=bd \
+vivado -mode batch -source soc/hw/vivado/gemv/build_vivado.tcl \
+  2>&1 | tee soc/docs/results/lrc_p4/vivado_bd.log
+```
+
+Return `vivado_bd.log`, `soc/hw/vivado/gemv_f150_b64_o8/address_map.csv` and `soc/hw/vivado/gemv_f150_b64_o8/soc_gemv_bd.tcl`. Review the AXI-Lite base, all four HP0 DDR mappings, clock/reset, interrupt and validation messages before the bitstream stage.
+
+The script also retains an alternate verified-configuration input:
 
 - `SOC_GEMV_PS_CONFIG`: course Tcl configuring the existing `$ps` (DDR/MIO/PS settings), or
-- `SOC_GEMV_BOARD_PART`: a matching installed board definition, optionally registered through `SOC_GEMV_BOARD_REPO`.
+- `SOC_GEMV_BOARD_PART`: an installed board definition, optionally registered through `SOC_GEMV_BOARD_REPO`.
 
-No matching PS configuration was found among the available local project/reference Tcl files. Confirm the intended -e/-i target before selecting a preset; do not silently retarget. A course Vivado project/BD Tcl or board tutorial assets may contain the settings. Once those are available, validate the BD/address map before implementation/bitstream. A physical board is not needed for this LRC BD step, but the correct board configuration is. See `../hw/vivado/gemv/README.md` for the stage commands.
+No separate PS Tcl is needed for the selected course path: the script applies the installed Ultra96-V2 board preset. A physical board is not needed for this LRC BD step. Do not proceed to implementation until the generated BD evidence is reviewed. See `../hw/vivado/gemv/README.md` for details.
 
 ### On the board when available
 
