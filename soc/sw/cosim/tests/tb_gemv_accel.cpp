@@ -190,6 +190,7 @@ int sc_main(int, char **) {
     check(irq.read() && cpu.read32(GEMV_REG_ISR) == GEMV_IRQ_DONE,
           "completion interrupt was not asserted");
     cpu.write32(GEMV_REG_ISR, GEMV_IRQ_DONE);
+    sc_core::sc_start(sc_core::SC_ZERO_TIME);
     check(!irq.read(), "interrupt toggle-on-write did not clear the line");
     cpu.write32(GEMV_REG_GIE, 0);
 
