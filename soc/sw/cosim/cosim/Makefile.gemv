@@ -2,7 +2,7 @@ include Makefile
 
 CPPFLAGS += -I.
 CXXFLAGS += -std=c++14 -Wno-overloaded-virtual -ffp-contract=off
-CFLAGS += -std=c11 -ffp-contract=off
+CFLAGS += -std=gnu11 -ffp-contract=off
 
 GEMV_OBJS := zynqmp_gemv.o gemv_accel.o soc_repack.o \
              $(filter-out %mcdma.o %mrmac.o, $(OBJS))
