@@ -8,6 +8,9 @@
 #include <unistd.h>
 
 #include "systemc.h"
+#include "tlm.h"
+#include "tlm_utils/simple_initiator_socket.h"
+#include "tlm_utils/simple_target_socket.h"
 #include "tlm_utils/tlm_quantumkeeper.h"
 
 using namespace sc_core;

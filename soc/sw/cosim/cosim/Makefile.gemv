@@ -16,4 +16,7 @@ gemv_accel.o: gemv_accel.cpp gemv_accel.h gemv_regs.h soc_repack.h
 soc_repack.o: soc_repack.c soc_repack.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-.PHONY: zynqmp_gemv
+clean-gemv:
+	$(RM) zynqmp_gemv $(GEMV_OBJS)
+
+.PHONY: zynqmp_gemv clean-gemv
