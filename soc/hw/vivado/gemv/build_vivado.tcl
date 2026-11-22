@@ -167,9 +167,12 @@ if {$reset_high ne "1"} {
     error "Reset inverter produces active-high reset, but proc_sys_reset does not expect C_EXT_RESET_HIGH=1"
 }
 connect_bd_net [get_bd_pins locked_0/dout] [get_bd_pins reset_0/dcm_locked]
-foreach pin {aux_reset_in mb_debug_sys_rst} {
-    connect_bd_net [get_bd_pins zero_0/dout] [get_bd_pins reset_0/$pin]
-}
+set aux_high [get_property CONFIG.C_AUX_RESET_HIGH [get_bd_cells reset_0]]
+if {$aux_high ni {0 1}} { error "Unknown auxiliary reset polarity: $aux_high" }
+set aux_inactive [expr {$aux_high ? "zero_0/dout" : "locked_0/dout"}]
+connect_bd_net [get_bd_pins $aux_inactive] [get_bd_pins reset_0/aux_reset_in]
+connect_bd_net [get_bd_pins zero_0/dout] [get_bd_pins reset_0/mb_debug_sys_rst]
+puts "Auxiliary reset active-high=$aux_high; inactive tie-off=$aux_inactive"
 foreach pin {gemv_0/ap_rst_n control_xbar/aresetn memory_xbar/aresetn} {
     connect_bd_net [get_bd_pins reset_0/peripheral_aresetn] [get_bd_pins $pin]
 }

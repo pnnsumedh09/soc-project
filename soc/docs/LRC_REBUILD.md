@@ -1,5 +1,7 @@
 # Rebuild for board bring-up
 
+Board diagnostics subsequently confirmed a reset bug in the previous design: `C_AUX_RESET_HIGH=0` and `aux_reset_in` was tied to zero. That continuously asserted reset. The script now selects the inactive auxiliary-reset constant from the actual IP polarity. Regenerate BD and bitstream with this fix; unchanged HLS and software need not be rebuilt. The associated USB failure still needs investigation.
+
 The previous bitstream loaded on PYNQ, but the first control-register read did not return and USB xHCI failed. The cause is unresolved. The new builds are not a proven fix for that failure. An old active overlay or driver can leave AXI transactions outstanding during replacement; the presence of an old idle design alone does not identify the cause. Use a fresh board boot for the next reviewed deployment.
 
 On LRC, from this checkout:

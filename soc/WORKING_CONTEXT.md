@@ -32,6 +32,8 @@ Use this file as the entry point for SoC project work. Do not inventory or read 
 - Four accelerator memory masters reach the PS HP0 DDR path. The exposed low DDR range is 2 GiB.
 - A bitstream was generated; its timing report showed 100 MHz despite the f150 filename. PYNQ loaded it, then the first control read stalled and USB xHCI failed. Root cause remains unresolved. Do not repeat deployment until metadata and live PS clock/reset compatibility are reviewed after recovery.
 - Rebuild entry point: `bash soc/tools/rebuild_lrc.sh software|hls|bd|bitstream`, explicitly selecting 100 MHz. Physical-board validation remains.
+- Board diagnostics identified `C_AUX_RESET_HIGH=0` with `aux_reset_in` tied low: reset was continuously asserted. Vivado now ties the auxiliary reset to its inactive level based on its reported polarity. Regenerate BD/bitstream before deployment; USB failure remains unexplained.
+- Board image: PYNQ 3.0.1. `/dev/uio4` maps fabric at 0xA0000000; uio0 is an AXI performance monitor. No u-dma-buf found. CMA is 128 MiB, insufficient to cache all model weights simultaneously.
 - The portable HAL and mocked tests exist. Actual board DMA allocation/access support must still be confirmed.
 - QEMU/SystemC integration is assigned to a teammate and is not proof of FPGA-board operation.
 
