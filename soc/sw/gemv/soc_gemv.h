@@ -18,6 +18,7 @@
  *   SOC_GEMV_VERIFY=1     recompute every offloaded GEMV with llama.cpp's vec_dot and
  *                         record the difference (slow; for testing)
  *   SOC_GEMV_STATS=1      print statistics to stderr at exit
+ *   SOC_GEMV_PROFILE=PATH write one CSV row per GEMV (profiling overhead applies)
  *   SOC_GEMV_STRICT=1     abort instead of falling back to the CPU on backend errors
  */
 #ifndef SOC_GEMV_H
@@ -57,8 +58,15 @@ typedef struct soc_gemv_stats {
     uint64_t calls;            /* offloaded GEMVs (backend run succeeded) */
     uint64_t rows;             /* rows computed by the backend            */
     uint64_t weight_bytes;     /* repacked weight bytes the backend read  */
+    uint64_t activation_bytes; /* native Q8_0 activation bytes read       */
+    uint64_t output_bytes;     /* FP32 output bytes written               */
+    uint64_t macs;             /* logical multiply-accumulate operations  */
     uint64_t backend_ns;       /* time inside backend run()               */
+    uint64_t backend_ns_min;
+    uint64_t backend_ns_max;
     uint64_t fallback_calls;   /* GEMVs computed on the CPU instead        */
+    uint64_t fallback_ns;      /* time in the measured CPU fallback       */
+    uint64_t cache_hits;       /* calls using an existing weight entry    */
     uint64_t tensors;          /* weight matrices in the cache             */
     uint64_t repack_bytes;     /* bytes allocated for repacked weights     */
     uint64_t repack_ns;        /* time spent repacking                     */

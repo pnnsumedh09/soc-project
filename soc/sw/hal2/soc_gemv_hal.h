@@ -18,7 +18,8 @@ enum {
     SOC_GEMV_REG_BYTES = 0x10000,
     SOC_GEMV_START = 1, SOC_GEMV_DONE = 2, SOC_GEMV_IDLE = 4,
     SOC_GEMV_AUTO_RESTART = 128,
-    SOC_GEMV_MAX_ROWS = 151936, SOC_GEMV_MAX_NB = 152
+    SOC_GEMV_MAX_ROWS = 151936, SOC_GEMV_MAX_NB = 152,
+    SOC_GEMV_MAX_CHAIN_JOBS = 256
 };
 
 typedef struct {
@@ -42,6 +43,28 @@ typedef struct {
 } soc_gemv_job;
 
 typedef struct {
+    uint64_t elapsed_ns;
+    uint64_t read_bytes;
+    uint64_t write_bytes;
+    uint64_t macs;
+    uint32_t kernel_status;
+    int32_t error_code;
+} soc_gemv_job_result;
+
+typedef struct {
+    uint64_t elapsed_ns;
+    uint64_t weight_bytes;
+    uint64_t activation_bytes;
+    uint64_t activation_unique_bytes;
+    uint64_t output_bytes;
+    uint64_t macs;
+    uint32_t completed;
+    uint32_t failed_index;
+    uint32_t kernel_status;
+    int32_t error_code;
+} soc_gemv_chain_result;
+
+typedef struct {
     uint32_t offset, expected, actual; /* offset=UINT32_MAX when no word mismatch */
 } soc_gemv_register_failure;
 
@@ -53,4 +76,11 @@ int soc_gemv_hal_register_test(soc_gemv_hal *hal, soc_gemv_register_failure *fai
  * Buffers must remain mapped/allocated and untouched while DMA may be active. */
 int soc_gemv_hal_run(soc_gemv_hal *hal, const soc_gemv_job *job,
                      uint64_t timeout_ns, uint32_t *kernel_status);
+
+/* Compatibility chain for the scalar engine. It uses one hardware start per
+ * job. Byte/MAC totals include attempted jobs, not observed AXI traffic. */
+int soc_gemv_hal_run_chain(soc_gemv_hal *hal, const soc_gemv_job *jobs,
+                           uint32_t count, uint64_t timeout_ns,
+                           soc_gemv_job_result *results,
+                           soc_gemv_chain_result *summary);
 #endif

@@ -35,6 +35,8 @@ typedef struct {
     soc_q8r_mat   mat;
     void         *q_handle, *s_handle;
     uint64_t      q_dev, s_dev;
+    uint64_t      uses;
+    uint32_t      id;
 } slot_t;
 
 static slot_t g_slots[CACHE_SLOTS];
@@ -49,6 +51,9 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static int g_enabled, g_verify, g_print_stats, g_strict;
 static const soc_gemv_backend *g_be;
 static soc_gemv_stats g_st;
+static FILE *g_profile;
+static uint64_t g_profile_call;
+static uint32_t g_next_tensor_id;
 
 static float  *g_ref_buf;          /* scratch for verification */
 static size_t  g_ref_cap;
@@ -68,6 +73,24 @@ static int env_flag(const char *name, int dflt)
     return !(v[0] == '0' && v[1] == '\0');
 }
 
+static void profile_row(uint32_t tensor_id, uint32_t rows, uint32_t nb,
+                        const char *path, int cache_hit, uint64_t elapsed_ns)
+{
+    if (!g_profile)
+        return;
+    uint64_t weights = (uint64_t)rows * nb * (SOC_QK + 2);
+    uint64_t activation = (uint64_t)nb * SOC_Q8_0_BLOCK_BYTES;
+    uint64_t output = (uint64_t)rows * sizeof(float);
+    uint64_t macs = (uint64_t)rows * nb * SOC_QK;
+    fprintf(g_profile, "%llu,%u,%u,%llu,%s,%d,%llu,%llu,%llu,%llu,%llu\n",
+            (unsigned long long)++g_profile_call, tensor_id, rows,
+            (unsigned long long)nb * SOC_QK,
+            path, cache_hit,
+            (unsigned long long)weights, (unsigned long long)activation,
+            (unsigned long long)output, (unsigned long long)macs,
+            (unsigned long long)elapsed_ns);
+}
+
 static void at_exit_handler(void)
 {
     if (g_print_stats)
@@ -75,6 +98,10 @@ static void at_exit_handler(void)
     soc_gemv_shutdown();
     if (g_enabled && g_be)
         g_be->shutdown();
+    if (g_profile) {
+        fclose(g_profile);
+        g_profile = NULL;
+    }
 }
 
 static void init_once(void)
@@ -83,6 +110,18 @@ static void init_once(void)
     g_verify      = env_flag("SOC_GEMV_VERIFY", 0);
     g_print_stats = env_flag("SOC_GEMV_STATS", 0);
     g_strict      = env_flag("SOC_GEMV_STRICT", 0);
+
+    const char *profile_path = getenv("SOC_GEMV_PROFILE");
+    if (profile_path && *profile_path) {
+        g_profile = fopen(profile_path, "w");
+        if (g_profile) {
+            setvbuf(g_profile, NULL, _IOLBF, 0);
+            fputs("call,tensor_id,rows,n,path,cache_hit,weight_bytes,activation_bytes,output_bytes,macs,elapsed_ns\n",
+                  g_profile);
+        } else {
+            fprintf(stderr, "soc_gemv: cannot open profile trace '%s'\n", profile_path);
+        }
+    }
 
     const char *name = getenv("SOC_GEMV_BACKEND");
     if (!name || !*name)
@@ -215,6 +254,7 @@ static slot_t *lookup(const void *w, size_t stride, uint32_t rows, uint32_t nb)
             s->stride = stride;
             s->rows = rows;
             s->nb = nb;
+            s->id = ++g_next_tensor_id;
             fill_slot(s);
             return s;
         }
@@ -291,10 +331,16 @@ void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n
     uint32_t nb   = shape_ok ? (uint32_t)(n64 / SOC_QK) : 0;
 
     if (!shape_ok || !g_enabled) {
-        if (shape_ok)
+        uint64_t elapsed = 0;
+        if (shape_ok) {
+            uint64_t t0 = now_ns();
             cpu_gemv(w, w_row_stride, rows, nb, x, y, ref_vec_dot);
+            elapsed = now_ns() - t0;
+        }
         pthread_mutex_lock(&g_lock);
         g_st.fallback_calls++;
+        g_st.fallback_ns += elapsed;
+        profile_row(0, rows, nb, shape_ok ? "fallback" : "invalid", 0, elapsed);
         pthread_mutex_unlock(&g_lock);
         return;
     }
@@ -303,16 +349,30 @@ void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n
     pthread_mutex_lock(&g_lock);
 
     slot_t *s = lookup(w, w_row_stride, rows, nb);
+    int cache_hit = s && s->uses != 0;
+    if (s)
+        ++s->uses;
     int rc = -1;
+    uint64_t backend_elapsed = 0;
     if (s && s->state == SLOT_READY) {
         uint64_t t0 = now_ns();
         rc = g_be->run(&s->mat, s->q_dev, s->s_dev, x, y);
         uint64_t dt = now_ns() - t0;
+        backend_elapsed = dt;
         if (rc == 0) {
             g_st.calls++;
             g_st.rows += rows;
             g_st.weight_bytes += (uint64_t)rows * nb * (SOC_QK + 2);
+            g_st.activation_bytes += (uint64_t)nb * SOC_Q8_0_BLOCK_BYTES;
+            g_st.output_bytes += (uint64_t)rows * sizeof(float);
+            g_st.macs += (uint64_t)rows * nb * SOC_QK;
             g_st.backend_ns += dt;
+            if (!g_st.backend_ns_min || dt < g_st.backend_ns_min)
+                g_st.backend_ns_min = dt;
+            if (dt > g_st.backend_ns_max)
+                g_st.backend_ns_max = dt;
+            if (cache_hit)
+                g_st.cache_hits++;
         } else {
             fprintf(stderr, "soc_gemv: backend run failed (%d) for %u x %u\n", rc, rows, nb * SOC_QK);
             if (g_strict)
@@ -321,11 +381,17 @@ void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n
     }
 
     if (rc != 0) {
+        uint64_t t0 = now_ns();
         cpu_gemv(w, w_row_stride, rows, nb, x, y, ref_vec_dot);
+        uint64_t fallback_elapsed = now_ns() - t0;
         g_st.fallback_calls++;
+        g_st.fallback_ns += fallback_elapsed;
+        profile_row(s ? s->id : 0, rows, nb, "fallback", cache_hit, fallback_elapsed);
     } else if (g_verify) {
         verify(w, w_row_stride, rows, nb, x, y, ref_vec_dot);
     }
+    if (rc == 0)
+        profile_row(s->id, rows, nb, "backend", cache_hit, backend_elapsed);
 
     pthread_mutex_unlock(&g_lock);
 }
@@ -349,11 +415,16 @@ void soc_gemv_print_stats(void)
     fprintf(stderr,
             "soc_gemv stats: backend=%s\n"
             "  offloaded GEMVs   %llu (%llu rows), CPU fallbacks %llu\n"
-            "  weights streamed  %.1f MB in %.3f s backend time (%.2f GB/s)\n"
+            "  logical payload   weights %.1f MB, activations %.1f MB, outputs %.1f MB\n"
+            "  backend time      %.3f s, min %.3f ms, max %.3f ms, weight rate %.2f GB/s\n"
+            "  work              %.3f GMAC, cache hits %llu, CPU fallback %.3f s\n"
             "  weight cache      %llu matrices, %.1f MB, repack %.3f s, stale repacks %llu\n",
             g_be ? g_be->name : "none",
             (unsigned long long)s.calls, (unsigned long long)s.rows, (unsigned long long)s.fallback_calls,
-            s.weight_bytes / 1e6, bt, bt > 0 ? s.weight_bytes / bt / 1e9 : 0.0,
+            s.weight_bytes / 1e6, s.activation_bytes / 1e6, s.output_bytes / 1e6,
+            bt, s.backend_ns_min / 1e6, s.backend_ns_max / 1e6,
+            bt > 0 ? s.weight_bytes / bt / 1e9 : 0.0,
+            s.macs / 1e9, (unsigned long long)s.cache_hits, s.fallback_ns * 1e-9,
             (unsigned long long)s.tensors, s.repack_bytes / 1e6, s.repack_ns * 1e-9,
             (unsigned long long)s.stale_repacks);
     if (s.verified)

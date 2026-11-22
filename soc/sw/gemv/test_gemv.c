@@ -90,10 +90,14 @@ int main(void)
     soc_gemv_get_stats(&s0);
     CHECK(s0.tensors == 1 && s0.calls == 1, "after first call: tensors=%llu calls=%llu",
           (unsigned long long)s0.tensors, (unsigned long long)s0.calls);
+    CHECK(s0.weight_bytes == 852992 && s0.activation_bytes == 952 &&
+          s0.output_bytes == 3584 && s0.macs == 802816,
+          "first-call logical counters are incorrect");
     for (int i = 0; i < 5; i++) check_gemv(&q, "q hit");
     soc_gemv_get_stats(&s1);
     CHECK(s1.tensors == 1 && s1.calls == 6 && s1.repack_ns == s0.repack_ns,
           "cache hits repacked again (tensors=%llu)", (unsigned long long)s1.tensors);
+    CHECK(s1.cache_hits == 5, "cache_hits=%llu, expected 5", (unsigned long long)s1.cache_hits);
 
     printf("several matrices\n");
     check_gemv(&k, "k");

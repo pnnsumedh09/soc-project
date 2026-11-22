@@ -5,18 +5,8 @@ static int fail(int e) { errno = e; return -1; }
 static int overlap(uint64_t a, uint64_t n, uint64_t b, uint64_t m) {
     return a < b + m && b < a + n;
 }
-static void address(soc_gemv_hal *h, uint32_t reg, uint64_t value) {
-    h->io.write32(h->io.ctx, reg, (uint32_t)value);
-    h->io.write32(h->io.ctx, reg + 4, (uint32_t)(value >> 32));
-}
-int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
-                     uint64_t timeout, uint32_t *status) {
-    if (!h || !j || !status || !h->io.read32 || !h->io.write32 ||
-        !h->io.now_ns || !h->io.to_device || !h->io.to_cpu || !timeout)
-        return fail(EINVAL);
-    *status = UINT32_MAX;
-    if (h->poisoned) return fail(EIO);
-    if (!j->rows || j->rows > SOC_GEMV_MAX_ROWS || !j->nb || j->nb > SOC_GEMV_MAX_NB)
+static int validate_job(const soc_gemv_job *j) {
+    if (!j || !j->rows || j->rows > SOC_GEMV_MAX_ROWS || !j->nb || j->nb > SOC_GEMV_MAX_NB)
         return fail(EINVAL);
     uint64_t a[] = {j->quants, j->scales, j->x, j->y};
     uint64_t n[] = {(uint64_t)j->rows * j->nb * 32,
@@ -28,6 +18,20 @@ int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
         for (unsigned k = 0; k < i; ++k)
             if (overlap(a[i], n[i], a[k], n[k])) return fail(EINVAL);
     }
+    return 0;
+}
+static void address(soc_gemv_hal *h, uint32_t reg, uint64_t value) {
+    h->io.write32(h->io.ctx, reg, (uint32_t)value);
+    h->io.write32(h->io.ctx, reg + 4, (uint32_t)(value >> 32));
+}
+int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
+                     uint64_t timeout, uint32_t *status) {
+    if (!h || !j || !status || !h->io.read32 || !h->io.write32 ||
+        !h->io.now_ns || !h->io.to_device || !h->io.to_cpu || !timeout)
+        return fail(EINVAL);
+    *status = UINT32_MAX;
+    if (h->poisoned) return fail(EIO);
+    if (validate_job(j)) return -1;
     uint32_t ctrl = h->io.read32(h->io.ctx, SOC_GEMV_REG_CTRL);
     if (!(ctrl & SOC_GEMV_IDLE) || (ctrl & (SOC_GEMV_AUTO_RESTART | SOC_GEMV_START)))
         return fail(EBUSY);
@@ -60,4 +64,82 @@ int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
     }
     *status = h->io.read32(h->io.ctx, SOC_GEMV_REG_STATUS);
     return *status == 0 ? 0 : fail(EDOM);
+}
+
+int soc_gemv_hal_run_chain(soc_gemv_hal *h, const soc_gemv_job *jobs,
+                           uint32_t count, uint64_t timeout,
+                           soc_gemv_job_result *results,
+                           soc_gemv_chain_result *summary) {
+    if (!h || !jobs || !results || !summary || !count ||
+        count > SOC_GEMV_MAX_CHAIN_JOBS || !timeout || !h->io.read32 ||
+        !h->io.write32 || !h->io.now_ns || !h->io.to_device || !h->io.to_cpu)
+        return fail(EINVAL);
+    *summary = (soc_gemv_chain_result){0};
+    summary->failed_index = UINT32_MAX;
+    for (uint32_t i = 0; i < count; ++i) {
+        results[i] = (soc_gemv_job_result){0};
+        results[i].kernel_status = UINT32_MAX;
+    }
+    if (h->poisoned) {
+        summary->failed_index = 0;
+        summary->error_code = EIO;
+        results[0].error_code = EIO;
+        return fail(EIO);
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        if (validate_job(&jobs[i])) {
+            summary->failed_index = i;
+            summary->error_code = errno;
+            results[i].error_code = errno;
+            return -1;
+        }
+    }
+
+    uint64_t chain_start = h->io.now_ns(h->io.ctx);
+    uint64_t previous_x = UINT64_MAX;
+    uint32_t previous_nb = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        uint64_t elapsed = h->io.now_ns(h->io.ctx) - chain_start;
+        if (elapsed >= timeout) {
+            summary->failed_index = i;
+            summary->error_code = ETIMEDOUT;
+            results[i].error_code = ETIMEDOUT;
+            summary->elapsed_ns = elapsed;
+            return fail(ETIMEDOUT);
+        }
+        uint64_t job_start = h->io.now_ns(h->io.ctx);
+        uint32_t status = UINT32_MAX;
+        int rc = soc_gemv_hal_run(h, &jobs[i], timeout - elapsed, &status);
+        int saved = errno;
+        uint64_t job_elapsed = h->io.now_ns(h->io.ctx) - job_start;
+        uint64_t weights = (uint64_t)jobs[i].rows * jobs[i].nb * 34;
+        uint64_t activation = (uint64_t)jobs[i].nb * 34;
+        uint64_t output = (uint64_t)jobs[i].rows * 4;
+        uint64_t macs = (uint64_t)jobs[i].rows * jobs[i].nb * 32;
+        results[i].elapsed_ns = job_elapsed;
+        results[i].read_bytes = weights + activation;
+        results[i].write_bytes = output;
+        results[i].macs = macs;
+        results[i].kernel_status = status;
+        results[i].error_code = rc ? saved : 0;
+        summary->weight_bytes += weights;
+        summary->activation_bytes += activation;
+        if (jobs[i].x != previous_x || jobs[i].nb != previous_nb)
+            summary->activation_unique_bytes += activation;
+        summary->output_bytes += output;
+        summary->macs += macs;
+        previous_x = jobs[i].x;
+        previous_nb = jobs[i].nb;
+        if (rc) {
+            summary->failed_index = i;
+            summary->kernel_status = status;
+            summary->error_code = saved;
+            summary->elapsed_ns = h->io.now_ns(h->io.ctx) - chain_start;
+            errno = saved;
+            return -1;
+        }
+        ++summary->completed;
+    }
+    summary->elapsed_ns = h->io.now_ns(h->io.ctx) - chain_start;
+    return 0;
 }

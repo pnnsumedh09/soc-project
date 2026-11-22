@@ -49,9 +49,31 @@ Optional: `-DGGML_SOC_DIR=/path/to/soc` if the `soc/` folder is not at the repo 
 | `SOC_GEMV_BACKEND=emul` | backend (only `emul` today) |
 | `SOC_GEMV_VERIFY=1` | recompute every offloaded GEMV with llama.cpp's `vec_dot` and report differences (slow) |
 | `SOC_GEMV_STATS=1` | print counts, MB streamed, cache size, repack time at exit |
+| `SOC_GEMV_PROFILE=path.csv` | write one row per GEMV with tensor ID, shape, path, logical bytes, MACs, cache hit and measured host elapsed time |
 | `SOC_GEMV_STRICT=1` | abort instead of falling back on backend errors |
 
 A one-line banner `soc_gemv: enabled (...)` is printed to stderr at first use.
+
+`SOC_GEMV_STATS` now separates weight, activation and output payloads and reports logical MACs, cache hits, CPU fallback time and the minimum/maximum backend call time. These are software measurements around `backend->run()`. They are not accelerator clock cycles or observed AXI beats.
+
+Analyze an optional trace with:
+
+```bash
+python3 soc/sw/gemv/profile_trace.py gemv-trace.csv
+python3 soc/sw/gemv/profile_trace.py gemv-trace.csv --wall-seconds <measured-decode-interval>
+```
+
+The second form reports the measured backend share and the Amdahl speedup limit if backend time became zero. Trace output adds file I/O overhead, so collect competitive end-to-end timing without `SOC_GEMV_PROFILE`, then use a separate trace run to identify shapes and hot tensors. Use identical model, prompt, generated-token count, thread count, CPU affinity and clock settings for every comparison.
+
+The experiment runner performs separate CPU, emulation timing and emulation trace runs. It forwards all arguments after the output directory to `llama-bench`:
+
+```bash
+bash soc/sw/gemv/run_profile_experiment.sh \
+    ./build/bin/llama-bench /path/to/model.gguf ./profile-results \
+    -p 32 -n 32 -r 5 -t 1
+```
+
+Set `SOC_GEMV_RUN_FPGA=1` to add strict FPGA timing and trace runs after board smoke passes. The output directory contains one stdout, stderr and wall-time file for each case plus CSV files for trace cases.
 
 ## Tests
 

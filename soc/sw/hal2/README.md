@@ -5,6 +5,7 @@ Source implemented and locally tested; target Linux/UIO/DMA setup and board oper
 ## What is implemented
 
 - `soc_gemv_hal.c/.h`: portable, serialized control protocol with exact reviewed register offsets, 64-bit addresses, shape/alignment/range/overlap checks, stale done/valid clearing, ownership barriers, start/poll/status and bounded timeout. Waits for both DONE and IDLE, and accepts output only with status-valid and status zero.
+- `soc_gemv_hal_run_chain()`: bounded compatibility chain for up to 256 scalar jobs. It validates every job before the first start, stops at the first runtime failure and reports per-job/total host time, logical payload bytes and MACs. It still issues one hardware start per job and is not a descriptor-DMA engine.
 - `soc_gemv_arena.c/.h`: 4-KiB-aligned first-fit suballocation and coalescing inside an externally allocated DMA pool. Checks that weight CPU/device addresses identify the same live allocation. Allocator metadata is ordinary CPU memory; engine buffers are never heap allocations.
 - `soc_gemv_backend_fpga.c`: Linux/AArch64 UIO map0 registers and u-dma-buf pool. Reserves reusable activation/output scratch, stages x, uses persistent repacked weights directly, and copies y to the caller only on success. Existing weight-cache lock serializes all allocations/jobs. Nonzero return follows the existing CPU fallback; strict mode aborts instead.
 - `board_smoke.c`: explicit target-only single-GEMV bring-up test: repeated calls, changed weights, nonfinite-scale failure without copying invalid results, then recovery. It is not run by `make test`.
@@ -19,7 +20,7 @@ make -C soc/sw/hal2 test
 python3 soc/hw/vivado/gemv/test_scripts.py
 ```
 
-HAL tests use fake MMIO and clock callbacks. They cover stale DONE/valid, split 64-bit addresses, repeated calls, delayed idle, nonzero kernel status, invalid descriptors, auto-restart/busy rejection, timeout quarantine and missing status-valid. Arena checks cover alignment, allocation failure, CPU/device identity and free/coalescing. The fallback test deliberately uses `/dev/null/no-uio`, so it cannot access real hardware. Board test compilation alone does not validate DMA.
+HAL tests use fake MMIO and clock callbacks. They cover stale DONE/valid, split 64-bit addresses, repeated calls, chain completion, chain prevalidation, partial failure, logical counters, delayed idle, nonzero kernel status, invalid descriptors, auto-restart/busy rejection, timeout quarantine and missing status-valid. Arena checks cover alignment, allocation failure, CPU/device identity and free/coalescing. The fallback test deliberately uses `/dev/null/no-uio`, so it cannot access real hardware. Board test compilation alone does not validate DMA.
 
 ## Board prerequisites for this optional adapter
 

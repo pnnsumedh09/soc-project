@@ -6,9 +6,28 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <malloc.h>
+#endif
+
+static void *test_aligned_alloc(size_t alignment, size_t size) {
+#ifdef _WIN32
+    return _aligned_malloc(size, alignment);
+#else
+    return aligned_alloc(alignment, size);
+#endif
+}
+static void test_aligned_free(void *memory) {
+#ifdef _WIN32
+    _aligned_free(memory);
+#else
+    free(memory);
+#endif
+}
 
 typedef struct {
     uint32_t regs[32];
+    uint32_t job_results[4];
     unsigned writes, reads, polls, starts, device_sync, cpu_sync;
     int running, timeout, no_valid, delay_idle;
     uint32_t result;
@@ -20,7 +39,9 @@ static uint32_t rd(void *p, uint32_t off) {
         ++f->polls;
         if (f->polls == 2) {
             f->regs[SOC_GEMV_REG_CTRL/4] = SOC_GEMV_DONE | (f->delay_idle ? 0 : SOC_GEMV_IDLE);
-            f->regs[SOC_GEMV_REG_STATUS/4] = f->result;
+            uint32_t job_result = f->starts <= 4 && f->job_results[f->starts - 1] ?
+                                  f->job_results[f->starts - 1] : f->result;
+            f->regs[SOC_GEMV_REG_STATUS/4] = job_result;
             f->regs[SOC_GEMV_REG_STATUS_VALID/4] = !f->no_valid;
         }
         if (f->delay_idle && f->polls == 4) f->regs[SOC_GEMV_REG_CTRL/4] |= SOC_GEMV_IDLE;
@@ -44,6 +65,36 @@ static soc_gemv_hal init(fake *f) {
     memset(f, 0, sizeof(*f)); f->regs[0] = SOC_GEMV_IDLE | SOC_GEMV_DONE;
     f->regs[SOC_GEMV_REG_STATUS_VALID/4] = 1; // stale valid must be cleared
     return (soc_gemv_hal){{f, rd, wr, now, device, cpu}, 0};
+}
+static void test_chain(void) {
+    fake f; soc_gemv_hal h = init(&f);
+    soc_gemv_job jobs[] = {
+        {0x1000, 0x2000, 0x3000, 0x4000, 3, 2},
+        {0x5000, 0x6000, 0x3000, 0x7000, 5, 2},
+        {0x8000, 0x9000, 0xa000, 0xb000, 4, 3},
+    };
+    soc_gemv_job_result results[3];
+    soc_gemv_chain_result summary;
+    assert(!soc_gemv_hal_run_chain(&h, jobs, 3, 10000, results, &summary));
+    assert(f.starts == 3 && summary.completed == 3 && summary.failed_index == UINT32_MAX);
+    assert(summary.weight_bytes == 952 && summary.activation_bytes == 238);
+    assert(summary.activation_unique_bytes == 170 && summary.output_bytes == 48);
+    assert(summary.macs == 896 && results[0].read_bytes == 272 && results[2].write_bytes == 16);
+
+    h = init(&f); f.job_results[1] = 3;
+    assert(soc_gemv_hal_run_chain(&h, jobs, 3, 10000, results, &summary) == -1);
+    assert(errno == EDOM && f.starts == 2 && summary.completed == 1 && summary.failed_index == 1);
+    assert(summary.kernel_status == 3 && summary.error_code == EDOM);
+
+    h = init(&f); jobs[1].quants++;
+    assert(soc_gemv_hal_run_chain(&h, jobs, 3, 10000, results, &summary) == -1);
+    assert(errno == EINVAL && f.starts == 0 && summary.completed == 0 && summary.failed_index == 1);
+    assert(results[2].kernel_status == UINT32_MAX && results[2].error_code == 0);
+
+    jobs[1].quants--;
+    h = init(&f); h.poisoned = 1;
+    assert(soc_gemv_hal_run_chain(&h, jobs, 3, 10000, results, &summary) == -1);
+    assert(errno == EIO && f.starts == 0 && summary.failed_index == 0 && results[0].error_code == EIO);
 }
 static void test_control(void) {
     fake f; soc_gemv_hal h = init(&f);
@@ -80,7 +131,7 @@ static void test_control(void) {
     }
 }
 static void test_arena(void) {
-    void *memory = aligned_alloc(4096, 32768); assert(memory);
+    void *memory = test_aligned_alloc(4096, 32768); assert(memory);
     soc_gemv_arena a;
     assert(!soc_gemv_arena_init(&a, memory, 0x10000000, 32768));
     void *p1,*p2,*h1,*h2; uint64_t d1,d2;
@@ -96,10 +147,10 @@ static void test_arena(void) {
     assert(!soc_gemv_arena_contains(&a,p1,d1,1));
     soc_gemv_arena_free(&a,h2);
     assert(!soc_gemv_arena_alloc(&a,32768,&p1,&d1,&h1));
-    soc_gemv_arena_destroy(&a); free(memory);
+    soc_gemv_arena_destroy(&a); test_aligned_free(memory);
 }
 int main(void) {
-    test_control(); test_arena();
-    puts("HAL control/timeout/ownership and arena tests: PASS (mock MMIO; no FPGA)");
+    test_control(); test_chain(); test_arena();
+    puts("HAL control/chain/profiling/ownership and arena tests: PASS (mock MMIO; no FPGA)");
     return 0;
 }
