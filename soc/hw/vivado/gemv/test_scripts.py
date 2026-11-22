@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import sys
 
 HERE = Path(__file__).resolve().parent
 HLS = HERE.parent.parent / "gemv"
@@ -18,6 +19,9 @@ set connected_nets {}
 set offsets {}
 set exported 0
 set props {}
+set config {}
+set validated 0
+set saved 0
 proc get_board_parts {args} {
     if {[info exists ::env(SOC_GEMV_BOARD_PART)]} {
         set requested [lindex $args end]
@@ -28,11 +32,10 @@ proc get_board_parts {args} {
     return {}
 }
 proc get_property {name object} {
-    if {$name eq "CONFIG.C_AUX_RESET_HIGH" && $object eq "reset_0"} {
-        return 0
-    }
-    if {$name eq "CONFIG.C_EXT_RESET_HIGH" && $object eq "reset_0"} {
-        return 1
+    if {[dict exists $::config $object $name]} {
+        # Reproduce the misleading pre-validation auxiliary polarity.
+        if {$name eq "CONFIG.C_AUX_RESET_HIGH" && !$::validated} { return 1 }
+        return [dict get $::config $object $name]
     }
     if {$name eq "PART_NAME" && [string match "avnet.com:ultra96v2:*" $object]} {
         return xczu3eg-sbva484-1-i
@@ -44,17 +47,64 @@ proc get_property {name object} {
 }
 proc create_project {args} { incr ::created; set ::project_args $args }
 proc create_bd_cell {args} { return [lindex $args end] }
-foreach cmd {current_project current_fileset get_bd_cells get_bd_intf_pins get_bd_pins get_bd_addr_spaces get_bd_addr_segs} {
+foreach cmd {current_project current_fileset get_bd_cells get_bd_intf_pins get_bd_addr_spaces get_bd_addr_segs} {
     proc $cmd {args} { return [lindex $args end] }
 }
-proc set_property {args} { lappend ::props $args }
+proc set_property {args} {
+    lappend ::props $args
+    if {[lindex $args 0] eq "-dict"} {
+        foreach {key value} [lindex $args 1] {
+            dict set ::config [lindex $args end] $key $value
+        }
+    } else {
+        dict set ::config [lindex $args end] [lindex $args 0] [lindex $args 1]
+    }
+}
+proc get_bd_nets {args} {
+    set pin [lindex $args end]
+    if {$::validated && $::case eq "reset_bad_net" && $pin eq "reset_0/aux_reset_in"} {
+        return net:zero_0/dout
+    }
+    if {$::validated && $::case eq "reset_bad_output" && $pin eq "gemv_0/ap_rst_n"} {
+        return {}
+    }
+    foreach connection $::connected_nets {
+        if {[lsearch -exact $connection $pin] >= 0} {
+            return net:[lindex $connection 0]
+        }
+    }
+    return {}
+}
+proc get_bd_pins {args} {
+    set i [lsearch -exact $args -of_objects]
+    if {$i >= 0} {
+        set driver [string range [lindex $args [expr {$i+1}]] 4 end]
+        if {$::case eq "reset_multiple_drivers" && $driver eq "locked_0/dout"} {
+            return [list $driver zero_0/dout]
+        }
+        return $driver
+    }
+    return [lindex $args end]
+}
+proc validate_bd_design {args} {
+    set ::validated 1
+    switch $::case {
+        reset_bad_aux { dict set ::config reset_0 CONFIG.C_AUX_RESET_HIGH 1 }
+        reset_bad_ext { dict set ::config reset_0 CONFIG.C_EXT_RESET_HIGH 0 }
+        reset_bad_constant { dict set ::config locked_0 CONFIG.CONST_VAL 0 }
+        reset_bad_inverter { dict set ::config reset_inverter CONFIG.C_OPERATION and }
+        board_v2 { dict set ::config locked_0 CONFIG.CONST_VAL 0x1 }
+    }
+}
+proc save_bd_design {args} { incr ::saved }
+
 proc connect_bd_intf_net {args} { lappend ::connected $args }
 proc connect_bd_net {args} { lappend ::connected_nets $args }
 proc assign_bd_address {args} {
     set i [lsearch -exact $args -offset]
     if {$i >= 0} { lappend ::offsets [lindex $args [expr {$i+1}]] }
 }
-foreach cmd {update_ip_catalog create_bd_design apply_bd_automation validate_bd_design save_bd_design write_bd_tcl close_project} {
+foreach cmd {update_ip_catalog create_bd_design apply_bd_automation write_bd_tcl close_project} {
     proc $cmd {args} {}
 }
 proc open_project {args} {
@@ -67,7 +117,9 @@ foreach cmd {csim_design csynth_design cosim_design} {
 }
 rename exit real_exit
 proc exit {args} {}
-if {$case eq "bd"} { set env(SOC_GEMV_BUILD_STAGE) bd }
+if {$case eq "bd" || [string match "reset_*" $case]} {
+    set env(SOC_GEMV_BUILD_STAGE) bd
+}
 if {$case eq "board_v2"} {
     set env(SOC_GEMV_BUILD_STAGE) bd
     set env(SOC_GEMV_BOARD_PART) avnet.com:ultra96v2:part0:1.2
@@ -83,7 +135,13 @@ if {$case eq "bad_base"} { set env(SOC_GEMV_CONTROL_BASE) 0xa0000001 }
 if {$case eq "r8"} { set env(SOC_GEMV_HW_ROW_INTERLEAVE) 8 }
 set bad [expr {$case in {no_ps bad_base r8 bad_abi bad_header bad_part bad_clock board_wrong}}]
 set failed [catch {source $script} message]
-if {$bad} {
+if {[string match "reset_*" $case]} {
+    if {!$failed || $created != 1 || $saved != 0 ||
+        [string first "Post-validation reset check:" $message] < 0} {
+        error "Post-validation guard failed: $case / $message / saved=$saved"
+    }
+    puts "Guard $case PASS: $message"
+} elseif {$bad} {
     if {!$failed || $created != 0} { error "Guard failed: $case / $message" }
     puts "Guard $case PASS: $message"
 } else {
@@ -91,6 +149,7 @@ if {$bad} {
     if {$case eq "check" && $created != 0} { error "Preflight created a project" }
     if {$case eq "export" && !$exported} { error "Did not package existing RTL" }
     if {$case in {bd board_v2}} {
+        if {!$validated || $saved != 1} { error "Reset checks must precede save" }
         if {$created != 1 || [llength $connected] != 7 ||
             $offsets ne {0xA0000000 0x00000000 0x00000000 0x00000000 0x00000000}} {
             error "Unexpected AXI topology/address map: $connected / $offsets"
@@ -131,6 +190,9 @@ if {$bad} {
 
 
 def main():
+    reset_only = sys.argv[1:] == ["--reset-only"]
+    if sys.argv[1:] and not reset_only:
+        raise SystemExit("Usage: test_scripts.py [--reset-only]")
     with tempfile.TemporaryDirectory(prefix="soc_gemv_p4_scripts_") as temp:
         root = Path(temp)
         hw = root / "soc/hw"
@@ -143,8 +205,14 @@ def main():
         if "xilinx.com:ip:zynq_ultra_ps_e:3.4" not in vivado_text or \
            "xilinx.com:ip:zynq_ultra_ps_e:3.3" in vivado_text:
             raise RuntimeError("Vivado 2022.2 Ultra96-V2 requires Zynq MPSoC IP version 3.4")
-        for name in ("check_export.tcl", "export_existing.tcl"):
-            shutil.copy(HLS / name, hls)
+        if reset_only:
+            # Isolated reset tests read only the two allowlisted source files.
+            # HLS ABI validation is outside this mode and explicitly stubbed.
+            (hls / "check_export.tcl").write_text(
+                "proc soc_gemv_check_registers {ip_repo} {}\n")
+        else:
+            for name in ("check_export.tcl", "export_existing.tcl"):
+                shutil.copy(HLS / name, hls)
         solution = hw / "hls_work/gemv/f150_b64_o8/solution"
         report = solution / "syn/report"
         report.mkdir(parents=True)
@@ -175,7 +243,12 @@ def main():
         import os
         env = {k:v for k,v in os.environ.items() if not k.startswith("SOC_GEMV_")}
         env["SOC_GEMV_PS_CONFIG"] = str(ps)
-        for case in ("check", "bd", "board_v2", "board_wrong", "no_ps", "bad_base", "r8", "bad_abi", "bad_header", "bad_part", "bad_clock", "export"):
+        reset_cases = ("reset_bad_aux", "reset_bad_ext", "reset_bad_constant",
+                       "reset_bad_inverter", "reset_bad_net", "reset_bad_output",
+                       "reset_multiple_drivers")
+        cases = (("bd", "board_v2") + reset_cases if reset_only else
+                 ("check", "bd", "board_v2", "board_wrong", "no_ps", "bad_base", "r8", "bad_abi", "bad_header", "bad_part", "bad_clock", "export") + reset_cases)
+        for case in cases:
             header.write_text(abi.replace("STATUS_DATA 0x60", "STATUS_DATA 0x68") if case=="bad_abi" else abi)
             if case == "bad_header": header.unlink()
             current_xml = xml.replace("-1-e", "-1-i") if case=="bad_part" else xml
@@ -187,7 +260,8 @@ def main():
             if proc.returncode:
                 raise RuntimeError(f"{case}: {proc.stdout}\n{proc.stderr}")
             print(proc.stdout.splitlines()[-1])
-    print("GEMV Tcl checks: PASS (mocked; Vitis/Vivado not executed)")
+    label = "reset checks" if reset_only else "Tcl checks"
+    print(f"GEMV {label}: PASS (mocked; Vitis/Vivado not executed)")
 
 
 if __name__ == "__main__":

@@ -138,6 +138,9 @@ set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {1}] [get_bd_cells cont
 create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 memory_xbar
 set_property -dict [list CONFIG.NUM_SI {4} CONFIG.NUM_MI {1}] [get_bd_cells memory_xbar]
 create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 reset_0
+# Do not choose a tie-off from the initial IP defaults: validation can infer
+# different reset polarities. Fix the intended configuration and verify it below.
+set_property -dict [list CONFIG.C_EXT_RESET_HIGH {1} CONFIG.C_AUX_RESET_HIGH {0}] [get_bd_cells reset_0]
 create_bd_cell -type ip -vlnv xilinx.com:ip:util_vector_logic:2.0 reset_inverter
 set_property -dict [list CONFIG.C_OPERATION {not} CONFIG.C_SIZE {1}] [get_bd_cells reset_inverter]
 create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 locked_0
@@ -167,12 +170,9 @@ if {$reset_high ne "1"} {
     error "Reset inverter produces active-high reset, but proc_sys_reset does not expect C_EXT_RESET_HIGH=1"
 }
 connect_bd_net [get_bd_pins locked_0/dout] [get_bd_pins reset_0/dcm_locked]
-set aux_high [get_property CONFIG.C_AUX_RESET_HIGH [get_bd_cells reset_0]]
-if {$aux_high ni {0 1}} { error "Unknown auxiliary reset polarity: $aux_high" }
-set aux_inactive [expr {$aux_high ? "zero_0/dout" : "locked_0/dout"}]
-connect_bd_net [get_bd_pins $aux_inactive] [get_bd_pins reset_0/aux_reset_in]
+# Active-low auxiliary reset is inactive at one; debug reset is inactive at zero.
+connect_bd_net [get_bd_pins locked_0/dout] [get_bd_pins reset_0/aux_reset_in]
 connect_bd_net [get_bd_pins zero_0/dout] [get_bd_pins reset_0/mb_debug_sys_rst]
-puts "Auxiliary reset active-high=$aux_high; inactive tie-off=$aux_inactive"
 foreach pin {gemv_0/ap_rst_n control_xbar/aresetn memory_xbar/aresetn} {
     connect_bd_net [get_bd_pins reset_0/peripheral_aresetn] [get_bd_pins $pin]
 }
@@ -186,6 +186,48 @@ foreach port {weights scales activation output_r} {
         [get_bd_addr_segs $ps/SAXIGP2/HP0_DDR_LOW] -force
 }
 validate_bd_design
+# Check inferred properties AND actual nets after propagation, before saving or
+# generating any hardware. A mismatch must abort both bd and bitstream stages.
+proc require_reset_property {cell property expected} {
+    set actual [get_property $property [get_bd_cells $cell]]
+    if {$actual ne $expected} {
+        error "Post-validation reset check: $cell $property=$actual; expected $expected"
+    }
+}
+proc require_reset_net {source sinks} {
+    set source_pin [get_bd_pins $source]
+    set net [get_bd_nets -quiet -of_objects $source_pin]
+    if {[llength $net] != 1} {
+        error "Post-validation reset check: $source must drive exactly one net"
+    }
+    set drivers [get_bd_pins -quiet -of_objects $net -filter {DIR == O}]
+    if {[llength $drivers] != 1 || [lindex $drivers 0] ne $source_pin} {
+        error "Post-validation reset check: unexpected drivers on $source net: $drivers"
+    }
+    foreach sink $sinks {
+        set sink_net [get_bd_nets -quiet -of_objects [get_bd_pins $sink]]
+        if {$sink_net ne $net} {
+            error "Post-validation reset check: $sink is not connected to $source"
+        }
+    }
+}
+require_reset_property reset_0 CONFIG.C_EXT_RESET_HIGH 1
+require_reset_property reset_0 CONFIG.C_AUX_RESET_HIGH 0
+# Constants may be returned as decimal or hexadecimal by Vivado.
+foreach {cell expected} {locked_0 1 zero_0 0} {
+    set value [get_property CONFIG.CONST_VAL [get_bd_cells $cell]]
+    if {![string is wideinteger -strict $value] || $value != $expected} {
+        error "Post-validation reset check: $cell constant=$value; expected $expected"
+    }
+}
+require_reset_property reset_inverter CONFIG.C_OPERATION not
+require_reset_property reset_inverter CONFIG.C_SIZE 1
+require_reset_net $ps/pl_resetn0 {reset_inverter/Op1}
+require_reset_net reset_inverter/Res {reset_0/ext_reset_in}
+require_reset_net locked_0/dout {reset_0/aux_reset_in reset_0/dcm_locked}
+require_reset_net zero_0/dout {reset_0/mb_debug_sys_rst}
+require_reset_net reset_0/peripheral_aresetn {gemv_0/ap_rst_n control_xbar/aresetn memory_xbar/aresetn}
+puts "Post-validation reset checks PASS: external active-high via inverter; auxiliary active-low tied high; reset outputs connected"
 save_bd_design
 write_bd_tcl -force "$work/soc_gemv_bd.tcl"
 assign_bd_address -export_to_file "$work/address_map.csv" -force
