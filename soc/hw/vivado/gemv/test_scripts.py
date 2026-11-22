@@ -256,7 +256,8 @@ def main():
             xmlpath.write_text(current_xml)
             script = hls / "export_existing.tcl" if case=="export" else vivado / "build_vivado.tcl"
             proc = subprocess.run(["tclsh", str(mock), str(script), case], env=env,
-                                  text=True, capture_output=True)
+                                  universal_newlines=True,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if proc.returncode:
                 raise RuntimeError(f"{case}: {proc.stdout}\n{proc.stderr}")
             print(proc.stdout.splitlines()[-1])
