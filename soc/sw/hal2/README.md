@@ -25,7 +25,7 @@ HAL tests use fake MMIO and clock callbacks. They cover stale DONE/valid, split 
 
 1. Matching sequential GEMV bitstream loaded, PS HP0/DDR initialized and 150 MHz (or the selected clock) actually configured. UIO map0 exposes the GEMV control bank, default physical base `0xA0000000`, at least 64 KiB, map offset zero. This code polls and does not require an interrupt.
 2. Course-approved Linux UIO and **ikwzm u-dma-buf** driver, not the unrelated upstream Linux `/dev/udmabuf` API. Device/sysfs pairs must refer to the same device. The script does not install/load drivers or modify device trees.
-3. Dedicated persistent contiguous pool, 4-KiB aligned and wholly below 4 GiB, with the reported physical address directly visible to PL (no unaccounted SMMU/IOMMU translation). Pool must not overlap OS-owned DDR or other DMA users.
+3. Dedicated persistent contiguous pool, 4-KiB aligned and wholly below 2 GiB (`0x80000000`), matching the implemented HP0_DDR_LOW address segment, with the reported physical address directly visible to PL (no unaccounted SMMU/IOMMU translation). Pool must not overlap OS-owned DDR or other DMA users.
 4. `sync_mode=2` or `6` and `dma_coherent=0`, opened `O_SYNC` for noncached write-combined CPU access on AArch64. Cached/coherent mappings are refused for this HP0 strategy. Do not change pool cache policy or access it through a conflicting cached alias while this backend owns it.
 5. One cooperating process owns both UIO and pool; advisory locks cannot exclude other drivers or software that ignores them. A small pool can support smoke tests; caching all selected Qwen weights needs roughly 525 MB plus padding/scratch, which has NOT been demonstrated on the board. P0.6/D0 remains required.
 

@@ -201,6 +201,16 @@ launch_runs impl_1 -to_step write_bitstream -jobs $jobs
 wait_on_run impl_1
 if {[get_property PROGRESS [get_runs impl_1]] ne "100%"} { error "Implementation failed" }
 open_run impl_1
+set pl_clocks [get_clocks -of_objects [get_nets -hier -filter {NAME =~ *zynq_ultra_ps_e_0_pl_clk0}]]
+if {[llength $pl_clocks] != 1} {
+    error "Cannot identify exactly one implemented PS PL0 clock; inspect report_clocks before deployment"
+}
+set actual_period [get_property PERIOD $pl_clocks]
+puts "Implemented PL0 period: $actual_period ns; requested: [expr {1000.0 / $mhz}] ns"
+if {abs($actual_period - 1000.0 / $mhz) > 0.05} {
+    error "Implemented PL0 clock differs from requested MHz; do not deploy this build"
+}
+report_clocks -file "$work/clocks.rpt"
 report_timing_summary -file "$work/timing_summary.rpt"
 report_utilization -file "$work/utilization.rpt"
 foreach delay_type {max min} {

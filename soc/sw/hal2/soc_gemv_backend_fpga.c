@@ -123,7 +123,7 @@ static int fpga_init(void) {
     if (base != expected || map_offset || map_size < SOC_GEMV_REG_BYTES ||
         (mode != 2 && mode != 6) || coherent || !timeout || timeout > 600000 ||
         !size || size > SIZE_MAX || size % SOC_REPACK_ALIGN ||
-        phys % SOC_REPACK_ALIGN || phys > UINT64_MAX - size || phys + size > 0x100000000ull)
+        phys % SOC_REPACK_ALIGN || phys > UINT64_MAX - size || phys + size > 0x80000000ull)
         return fail(EINVAL);
     char default_lock[128];
     snprintf(default_lock, sizeof(default_lock), "/tmp/soc-gemv-%llx.lock", (unsigned long long)base);
