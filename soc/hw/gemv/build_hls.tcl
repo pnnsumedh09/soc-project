@@ -7,26 +7,25 @@ proc setting {name fallback} {
 set mhz [setting SOC_GEMV_HW_MHZ 100]
 set burst [setting SOC_GEMV_HW_BURST 64]
 set outstanding [setting SOC_GEMV_HW_OUTSTANDING 8]
-set interleave [setting SOC_GEMV_HW_ROW_INTERLEAVE 1]
 set stage [setting SOC_GEMV_HW_STAGE export]
 set part [setting SOC_GEMV_HW_PART xczu3eg-sbva484-1-e]
 if {$mhz ni {100 150 200} || $burst ni {1 4 16 64 256} ||
     ![string is integer -strict $outstanding] || $outstanding < 1 || $outstanding > 32 ||
-    $interleave ni {1 8} || $stage ni {synth export} || $part ni {xczu3eg-sbva484-1-e xczu3eg-sbva484-1-i}} {
-    error "Use MHz=100/150/200, burst=1/4/16/64/256, outstanding=1..32, interleave=1/8, stage=synth/export, part=-e/-i"
+    [setting SOC_GEMV_HW_ROW_INTERLEAVE 1] ne "1" ||
+    $stage ni {csim synth cosim export} || $part ni {xczu3eg-sbva484-1-e xczu3eg-sbva484-1-i}} {
+    error "Use MHz=100/150/200, burst=1/4/16/64/256, outstanding=1..32, row interleave=1, stage=csim/synth/cosim/export, part=-e/-i"
 }
-# Keep the already verified r1 project intact when building the new candidate.
-set tag f${mhz}_b${burst}_o${outstanding}
-if {$interleave != 1} { append tag _r${interleave} }
+set tag q4k_f${mhz}_b${burst}_o${outstanding}
 set work [file normalize "$here/../hls_work/gemv/$tag"]
 file mkdir [file dirname $work]
 cd [file dirname $work]
 open_project -reset [file tail $work]
 set_top soc_gemv_hw
-set includes "-I$soc/sw/repack -I$here/../common"
-set flags "-std=c++11 -ffp-contract=off -DSOC_GEMV_HW_ROW_INTERLEAVE=$interleave $includes"
+set includes "-I$soc/sw/repack"
+set flags "-std=c++11 -ffp-contract=off $includes"
 add_files "$here/gemv.cpp" -cflags $flags
-add_files "$here/../common/dot_q8_0_core.cpp" -cflags $flags
+add_files -tb "$here/tb.cpp" -cflags $flags
+add_files -tb "$soc/sw/repack/soc_repack.c" -cflags "-std=c11 -ffp-contract=off $includes"
 open_solution -reset solution -flow_target vivado
 set_part $part
 create_clock -period [expr {1000.0 / $mhz}] -name default
@@ -38,10 +37,10 @@ set_directive_interface -mode m_axi -offset slave -bundle weights -depth 19456 \
     -max_read_burst_length $burst -num_read_outstanding $outstanding \
     -max_write_burst_length 2 -num_write_outstanding 1 \
     -max_widen_bitwidth 128 soc_gemv_hw w_quants
-set_directive_interface -mode m_axi -offset slave -bundle scales -depth 9728 \
+set_directive_interface -mode m_axi -offset slave -bundle metadata -depth 9728 \
     -max_read_burst_length $burst -num_read_outstanding $outstanding \
     -max_write_burst_length 2 -num_write_outstanding 1 \
-    -max_widen_bitwidth 128 soc_gemv_hw w_scales
+    -max_widen_bitwidth 128 soc_gemv_hw w_metadata
 set_directive_interface -mode m_axi -offset slave -bundle activation -depth 5168 \
     -max_read_burst_length 16 -num_read_outstanding 2 \
     -max_write_burst_length 2 -num_write_outstanding 1 \
@@ -51,9 +50,17 @@ set_directive_interface -mode m_axi -offset slave -bundle output -depth 64 \
     -max_write_burst_length 16 -num_write_outstanding 2 \
     -max_widen_bitwidth 32 soc_gemv_hw y
 
+if {$stage eq "csim"} {
+    csim_design -clean
+    puts "Q4_K GEMV C simulation completed: $work"
+    exit
+}
 csynth_design
+if {$stage eq "cosim"} {
+    cosim_design -rtl verilog
+}
 if {$stage eq "export"} {
     export_design -format ip_catalog -rtl verilog -vendor soc.org -library hls -version 1.0
 }
-puts "GEMV production HLS stage $stage completed: $work"
+puts "Q4_K GEMV HLS stage $stage completed: $work"
 exit

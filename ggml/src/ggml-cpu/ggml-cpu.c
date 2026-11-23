@@ -1266,7 +1266,7 @@ static void ggml_compute_forward_mul_mat_one_chunk(
 }
 
 #ifdef GGML_SOC_GEMV
-// ECE382M SoC project: decode GEMV (one activation column) against a Q8_0
+// ECE382M SoC project: decode GEMV (one activation column) against a Q4_K
 // model weight tensor goes to soc_gemv (repacked weights, emul or FPGA).
 // The result depends only on the tensors and a fixed global flag, so every
 // compute thread takes the same branch.
@@ -1275,10 +1275,10 @@ static bool ggml_soc_gemv_eligible(const struct ggml_compute_params * params,
                                    const struct ggml_tensor * src1,
                                    const struct ggml_tensor * dst) {
     return !params->use_ref &&
-           src0->type == GGML_TYPE_Q8_0 && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32 &&
+           src0->type == GGML_TYPE_Q4_K && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32 &&
            src1->ne[1] == 1 && src1->ne[2] == 1 && src1->ne[3] == 1 &&
            src0->ne[2] == 1 && src0->ne[3] == 1 &&
-           src0->ne[0] % QK8_0 == 0 &&
+           src0->ne[0] % QK_K == 0 &&
            src0->view_src == NULL && src0->extra == NULL && src0->buffer != NULL &&
            ggml_backend_buffer_get_usage(src0->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
            soc_gemv_enabled();
@@ -1420,12 +1420,12 @@ UseGgmlGemm1:;
     ggml_barrier(params->threadpool);
 
 #ifdef GGML_SOC_GEMV
-    // src1 is now quantized to Q8_0 blocks in params->wdata (all threads done).
+    // src1 is now quantized to Q8_K blocks in params->wdata (all threads done).
     if (ggml_soc_gemv_eligible(params, src0, src1, dst)) {
         if (ith == 0) {
-            soc_gemv_q8_0(src0->data, src0->nb[1], src0->ne[1], src0->ne[0],
+            soc_gemv_q4_k(src0->data, src0->nb[1], src0->ne[1], src0->ne[0],
                           params->wdata, (float *) dst->data,
-                          (soc_vec_dot_fn) type_traits_cpu[GGML_TYPE_Q8_0].vec_dot);
+                          (soc_vec_dot_fn) type_traits_cpu[GGML_TYPE_Q4_K].vec_dot);
         }
         return;
     }

@@ -9,6 +9,7 @@
 #include "soc_repack.h"
 
 #include <math.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,11 +31,11 @@ typedef struct {
     const void   *w;                         /* key: weight pointer ...       */
     size_t        stride;                    /* ... plus shape                */
     uint32_t      rows, nb;
-    unsigned char head[SOC_Q8_0_BLOCK_BYTES];/* first and last block, to detect */
-    unsigned char tail[SOC_Q8_0_BLOCK_BYTES];/* reuse of the address for new data */
-    soc_q8r_mat   mat;
-    void         *q_handle, *s_handle;
-    uint64_t      q_dev, s_dev;
+    unsigned char head[SOC_Q4_K_BLOCK_BYTES];
+    unsigned char tail[SOC_Q4_K_BLOCK_BYTES];
+    soc_q4kr_mat  mat;
+    void         *q_handle, *metadata_handle;
+    uint64_t      q_dev, metadata_dev;
 } slot_t;
 
 static slot_t g_slots[CACHE_SLOTS];
@@ -137,9 +138,9 @@ static void cpu_gemv(const void *w, size_t stride, uint32_t rows, uint32_t nb,
     for (uint32_t r = 0; r < rows; r++) {
         const void *row = wb + (size_t)r * stride;
         if (ref)
-            ref((int)(nb * SOC_QK), &y[r], 0, row, 0, x, 0, 1);
+            ref((int)(nb * SOC_QK_K), &y[r], 0, row, 0, x, 0, 1);
         else
-            y[r] = soc_q8_0_row_dot_native(row, x, nb);
+            y[r] = soc_q4_k_row_dot_native(row, x, nb);
     }
 }
 
@@ -160,24 +161,24 @@ static void fingerprint(const void *w, size_t stride, uint32_t rows, uint32_t nb
                         unsigned char *head, unsigned char *tail)
 {
     const unsigned char *wb = (const unsigned char *)w;
-    memcpy(head, wb, SOC_Q8_0_BLOCK_BYTES);
-    memcpy(tail, wb + (size_t)(rows - 1) * stride + (size_t)(nb - 1) * SOC_Q8_0_BLOCK_BYTES,
-           SOC_Q8_0_BLOCK_BYTES);
+    memcpy(head, wb, SOC_Q4_K_BLOCK_BYTES);
+    memcpy(tail, wb + (size_t)(rows - 1) * stride + (size_t)(nb - 1) * SOC_Q4_K_BLOCK_BYTES,
+           SOC_Q4_K_BLOCK_BYTES);
 }
 
 static void free_slot(slot_t *s)
 {
     if (s->q_handle)
         g_be->free(s->q_handle);
-    if (s->s_handle)
-        g_be->free(s->s_handle);
+    if (s->metadata_handle)
+        g_be->free(s->metadata_handle);
     memset(s, 0, sizeof(*s));
 }
 
 static int repack_into(slot_t *s)
 {
     uint64_t t0 = now_ns();
-    int rc = soc_q8r_from_q8_0(&s->mat, s->w, s->stride);
+    int rc = soc_q4kr_from_q4_k(&s->mat, s->w, s->stride);
     g_st.repack_ns += now_ns() - t0;
     if (rc == 0)
         fingerprint(s->w, s->stride, s->rows, s->nb, s->head, s->tail);
@@ -188,25 +189,25 @@ static int repack_into(slot_t *s)
  * is marked CPU-only so we do not retry every token. */
 static void fill_slot(slot_t *s)
 {
-    size_t qb = soc_q8r_quants_bytes(s->rows, s->nb);
-    size_t sb = soc_q8r_scales_bytes(s->rows, s->nb);
-    void *qcpu = NULL, *scpu = NULL;
+    size_t qb = soc_q4kr_quants_bytes(s->rows, s->nb);
+    size_t mb = soc_q4kr_metadata_bytes(s->rows, s->nb);
+    void *qcpu = NULL, *metadata_cpu = NULL;
 
-    if (!qb || !sb ||
+    if (!qb || !mb ||
         g_be->alloc(qb, &qcpu, &s->q_dev, &s->q_handle) != 0 ||
-        g_be->alloc(sb, &scpu, &s->s_dev, &s->s_handle) != 0 ||
-        soc_q8r_init(&s->mat, s->rows, s->nb, qcpu, qb, scpu, sb) != 0 ||
+        g_be->alloc(mb, &metadata_cpu, &s->metadata_dev, &s->metadata_handle) != 0 ||
+        soc_q4kr_init(&s->mat, s->rows, s->nb, qcpu, qb, metadata_cpu, mb) != 0 ||
         repack_into(s) != 0) {
         fprintf(stderr, "soc_gemv: could not cache %u x %u matrix at %p (%zu + %zu B); using CPU for it\n",
-                s->rows, s->nb * SOC_QK, s->w, qb, sb);
+                s->rows, s->nb * SOC_QK_K, s->w, qb, mb);
         if (s->q_handle) { g_be->free(s->q_handle); s->q_handle = NULL; }
-        if (s->s_handle) { g_be->free(s->s_handle); s->s_handle = NULL; }
+        if (s->metadata_handle) { g_be->free(s->metadata_handle); s->metadata_handle = NULL; }
         s->state = SLOT_CPU_ONLY;
         return;
     }
     s->state = SLOT_READY;
     g_st.tensors++;
-    g_st.repack_bytes += qb + sb;
+    g_st.repack_bytes += qb + mb;
 }
 
 /* Find or create the slot for (w, stride, rows, nb). NULL if the table is full. */
@@ -225,7 +226,7 @@ static slot_t *lookup(const void *w, size_t stride, uint32_t rows, uint32_t nb)
         }
         if (s->w == w && s->stride == stride && s->rows == rows && s->nb == nb) {
             if (s->state == SLOT_READY) {
-                unsigned char head[SOC_Q8_0_BLOCK_BYTES], tail[SOC_Q8_0_BLOCK_BYTES];
+                unsigned char head[SOC_Q4_K_BLOCK_BYTES], tail[SOC_Q4_K_BLOCK_BYTES];
                 fingerprint(w, stride, rows, nb, head, tail);
                 if (memcmp(head, s->head, sizeof head) || memcmp(tail, s->tail, sizeof tail)) {
                     /* Same address, different contents: repack in place. */
@@ -275,7 +276,7 @@ static void verify(const void *w, size_t stride, uint32_t rows, uint32_t nb,
     if (norm > g_st.max_norm_diff) {
         if (norm > 1e-3 && g_st.max_norm_diff <= 1e-3)
             fprintf(stderr, "soc_gemv: WARNING verify: %u x %u GEMV differs by %.3g of max|y|\n",
-                    rows, nb * SOC_QK, norm);
+                    rows, nb * SOC_QK_K, norm);
         g_st.max_norm_diff = norm;
     }
 }
@@ -284,16 +285,17 @@ static void verify(const void *w, size_t stride, uint32_t rows, uint32_t nb,
 /* Entry point                                                                */
 /* ------------------------------------------------------------------------- */
 
-void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n64,
+void soc_gemv_q4_k(const void *w, size_t w_row_stride, int64_t rows64, int64_t n64,
                    const void *x, float *y, soc_vec_dot_fn ref_vec_dot)
 {
     pthread_once(&g_once, init_once);
 
-    int shape_ok = w && x && y && rows64 > 0 && rows64 <= (int64_t)UINT32_MAX &&
-                   n64 > 0 && n64 % SOC_QK == 0 && n64 / SOC_QK <= (int64_t)UINT32_MAX &&
-                   w_row_stride >= (size_t)(n64 / SOC_QK) * SOC_Q8_0_BLOCK_BYTES;
+    int shape_ok = w && x && y && rows64 > 0 && rows64 <= SOC_Q4_K_MAX_ROWS &&
+                   n64 > 0 && n64 <= INT_MAX && n64 % SOC_QK_K == 0 &&
+                   n64 / SOC_QK_K <= SOC_Q4_K_MAX_NB &&
+                   w_row_stride >= (size_t)(n64 / SOC_QK_K) * SOC_Q4_K_BLOCK_BYTES;
     uint32_t rows = shape_ok ? (uint32_t)rows64 : 0;
-    uint32_t nb   = shape_ok ? (uint32_t)(n64 / SOC_QK) : 0;
+    uint32_t nb   = shape_ok ? (uint32_t)(n64 / SOC_QK_K) : 0;
 
     if (!shape_ok || !g_enabled) {
         if (shape_ok)
@@ -311,15 +313,15 @@ void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n
     int rc = -1;
     if (s && s->state == SLOT_READY) {
         uint64_t t0 = now_ns();
-        rc = g_be->run(&s->mat, s->q_dev, s->s_dev, x, y);
+        rc = g_be->run(&s->mat, s->q_dev, s->metadata_dev, x, y);
         uint64_t dt = now_ns() - t0;
         if (rc == 0) {
             g_st.calls++;
             g_st.rows += rows;
-            g_st.weight_bytes += (uint64_t)rows * nb * (SOC_QK + 2);
+            g_st.weight_bytes += (uint64_t)rows * nb * SOC_Q4_K_BLOCK_BYTES;
             g_st.backend_ns += dt;
         } else {
-            fprintf(stderr, "soc_gemv: backend run failed (%d) for %u x %u\n", rc, rows, nb * SOC_QK);
+            fprintf(stderr, "soc_gemv: backend run failed (%d) for %u x %u\n", rc, rows, nb * SOC_QK_K);
             if (g_strict)
                 abort();
         }

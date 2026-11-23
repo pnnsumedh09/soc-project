@@ -1,4 +1,5 @@
 #include "soc_gemv_hal.h"
+#include "soc_repack.h"
 #include <errno.h>
 
 static int fail(int e) { errno = e; return -1; }
@@ -18,11 +19,12 @@ int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
     if (h->poisoned) return fail(EIO);
     if (!j->rows || j->rows > SOC_GEMV_MAX_ROWS || !j->nb || j->nb > SOC_GEMV_MAX_NB)
         return fail(EINVAL);
-    uint64_t a[] = {j->quants, j->scales, j->x, j->y};
-    uint64_t n[] = {(uint64_t)j->rows * j->nb * 32,
-                    (uint64_t)j->rows * j->nb * 2, (uint64_t)j->nb * 34,
+    uint64_t a[] = {j->quants, j->metadata, j->x, j->y};
+    uint64_t n[] = {(uint64_t)j->rows * j->nb * SOC_Q4_K_QUANT_BYTES,
+                    (uint64_t)j->rows * j->nb * SOC_Q4_K_META_BYTES,
+                    (uint64_t)j->nb * SOC_Q8_K_BLOCK_BYTES,
                     (uint64_t)j->rows * 4};
-    const unsigned align[] = {16, 2, 1, 4};
+    const unsigned align[] = {16, 16, 1, 4};
     for (unsigned i = 0; i < 4; ++i) {
         if (a[i] % align[i] || a[i] > UINT64_MAX - n[i]) return fail(EINVAL);
         for (unsigned k = 0; k < i; ++k)
@@ -35,7 +37,7 @@ int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
     (void)h->io.read32(h->io.ctx, SOC_GEMV_REG_STATUS_VALID);
     h->io.write32(h->io.ctx, SOC_GEMV_REG_GIE, 0); /* Polling, no interrupts. */
     address(h, SOC_GEMV_REG_W, j->quants);
-    address(h, SOC_GEMV_REG_S, j->scales);
+    address(h, SOC_GEMV_REG_METADATA, j->metadata);
     address(h, SOC_GEMV_REG_X, j->x);
     address(h, SOC_GEMV_REG_Y, j->y);
     h->io.write32(h->io.ctx, SOC_GEMV_REG_ROWS, j->rows);

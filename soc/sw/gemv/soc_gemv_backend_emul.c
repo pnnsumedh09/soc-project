@@ -2,13 +2,16 @@
  * soc_gemv_backend_emul.c - CPU emulation backend (plan task P2.3)
  *
  * Heap memory stands in for contiguous DMA memory, and run() is the golden
- * arithmetic (soc_q8r_gemv_ref): same data layout and operation order the
+ * arithmetic (soc_q4kr_gemv_ref): same data layout and operation order the
  * hardware engine must implement. Used to validate the hook, the repack and
  * the weight cache end to end before any FPGA exists.
  */
 #include "soc_gemv_backend.h"
 
 #include <stdlib.h>
+#ifdef _WIN32
+#include <malloc.h>
+#endif
 
 static int emul_init(void)
 {
@@ -23,7 +26,12 @@ static int emul_alloc(size_t bytes, void **cpu, uint64_t *dev_addr, void **handl
 {
     if (bytes == 0 || bytes % SOC_REPACK_ALIGN)
         return -1;
-    void *p = aligned_alloc(SOC_REPACK_ALIGN, bytes);
+    void *p;
+#ifdef _WIN32
+    p = _aligned_malloc(bytes, SOC_REPACK_ALIGN);
+#else
+    p = aligned_alloc(SOC_REPACK_ALIGN, bytes);
+#endif
     if (!p)
         return -1;
     *cpu = p;
@@ -34,15 +42,19 @@ static int emul_alloc(size_t bytes, void **cpu, uint64_t *dev_addr, void **handl
 
 static void emul_free(void *handle)
 {
+#ifdef _WIN32
+    _aligned_free(handle);
+#else
     free(handle);
+#endif
 }
 
-static int emul_run(const soc_q8r_mat *m, uint64_t q_dev, uint64_t s_dev,
-                    const void *x_q8_0, float *y)
+static int emul_run(const soc_q4kr_mat *m, uint64_t q_dev, uint64_t metadata_dev,
+                    const void *x_q8_k, float *y)
 {
     (void)q_dev;
-    (void)s_dev;
-    soc_q8r_gemv_ref(m, x_q8_0, y);
+    (void)metadata_dev;
+    soc_q4kr_gemv_ref(m, x_q8_k, y);
     return 0;
 }
 

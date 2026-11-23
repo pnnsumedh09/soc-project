@@ -1,77 +1,26 @@
-# GEMV production checkpoint
+# Q4_K GEMV accelerator
 
-The selected design is the verified sequential Q8_0 GEMV accelerator at
-100 MHz, with 128-bit weight reads, 64-beat maximum bursts and eight outstanding
-reads. Its current weight-processing loop achieves II=3.
+This branch extends `gemv-golden` with a sequential Q4_K matrix-vector accelerator for Q4_K_M GGUF models. The ggml hook offloads decode-time `Q4_K x Q8_K` matrix-vector operations. Q6_K, Q4_0, and other tensor types in a Q4_K_M model continue through llama.cpp's CPU implementation.
 
-## Files
+The hardware input limit is 19 Q4_K superblocks, or 4864 columns, with at most 151936 output rows. Unsupported shapes fall back to the supplied llama.cpp vector-dot function. The branch does not add or change a GGUF quantization type.
 
-- `soc/hw/gemv/gemv.cpp`, `gemv.h`: HLS design source.
-- `soc/hw/common/dot_q8_0_core.cpp`, `.h`: required numerical helpers.
-- `soc/hw/gemv/build_hls.tcl`: synthesis/export only; no testbench required.
-- `soc/hw/vivado/gemv/build_vivado.tcl`: PS/PL integration, reset validation,
-  implementation, timing checks and hardware handoff.
-- `soc/hw/out/gemv_f100_b64_o8.bit`, `.hwh`: verified uninstrumented hardware.
-- `soc/hardware.sha256`: hashes of the selected hardware files.
-- `soc/sw/repack`: existing weight layout conversion and reference arithmetic.
-- `soc/sw/gemv`: llama.cpp integration, persistent cache and backend selection.
-- `soc/sw/hal2`: register-control HAL and FPGA buffer backends. XRT is selected
-  by default; the older UIO/u-dma-buf adapter remains an optional source path.
-- `soc/third_party/xrt`: board-matched compile-time headers and original notices.
-- `soc/submission_defaults.cmake`: ARM/Linux FPGA defaults; tests disabled.
+## Data layout
 
-Upstream test directories, SoC tests, testbenches, validation logs, cleanup
-manifests and generated experiment projects are excluded from this checkout.
-Earlier verification evidence remains outside the production tree and in the
-preceding local checkpoint. No handwritten FIFO profiling RTL is included.
+Each native 144-byte Q4_K superblock is repacked once into two aligned streams:
 
-## Software build
+- `w_quants`: 128 bytes of packed 4-bit values, or eight 128-bit AXI beats.
+- `w_metadata`: one 128-bit beat containing FP16 `d`, FP16 `dmin`, and 12 packed scale/min bytes.
 
-On mario:
+The activation remains llama.cpp's native 292-byte Q8_K block: one FP32 scale, 256 signed bytes, and sixteen signed 16-bit partial sums. The kernel follows llama.cpp's eight-lane accumulation order.
 
-```sh
-/usr/bin/cmake -S . -B build-ultra96-production \
-  -DCMAKE_TOOLCHAIN_FILE=/home/projects/gerstl/ece382m/ultra96_toolchain.cmake \
-  -DCMAKE_BUILD_TYPE=Release
-/usr/bin/cmake --build build-ultra96-production --target llama-cli llama-server -j8
-```
+## Software and profiling
 
-Linux/AArch64 defaults select FPGA/XRT. FPGA-enabled builds default to the
-`fpga` runtime backend. `SOC_GEMV=0` disables offload and
-`SOC_GEMV_BACKEND=emul` selects the retained software reference backend.
-The existing llama.cpp call-site hook is in `ggml/src/ggml-cpu/ggml-cpu.c`.
+`soc/sw/repack` supplies the repacker and reference arithmetic. `soc/sw/gemv` owns the persistent matrix cache, fallback, verification, and global statistics. The default Linux/AArch64 build selects the XRT/ZOCL allocator and generic UIO register control.
 
-## Hardware rebuild
+Set `SOC_GEMV_PROFILE=1` to retain the golden XRT phase profile. It reports activation copy, weight-quant sync, weight-metadata sync, activation sync, ownership checks, HAL submit/wait, output sync, and output copy. `SOC_GEMV_STATS=1` prints aggregate offload, cache, repack, and verification statistics.
 
-With Vivado/Vitis HLS 2022.2 loaded, run from the repository root:
+The Q8_0 `.bit` and `.hwh` files inherited from `gemv-golden` are incompatible reference artifacts. Do not load or package them with this software. Rebuild the Q4_K hardware; its generated stem is `gemv_q4k_f100_b64_o8` for the default 100 MHz configuration.
 
-```sh
-env SOC_GEMV_HW_MHZ=100 SOC_GEMV_HW_ROW_INTERLEAVE=1 \
-  SOC_GEMV_HW_STAGE=export vitis_hls -f soc/hw/gemv/build_hls.tcl
-env SOC_GEMV_HW_MHZ=100 SOC_GEMV_HW_ROW_INTERLEAVE=1 \
-  SOC_GEMV_BUILD_STAGE=bitstream \
-  SOC_GEMV_BOARD_PART=avnet.com:ultra96v2:part0:1.2 \
-  SOC_GEMV_BOARD_REPO=/misc/scratch/np26753/project/XilinxBoardStore/boards/Avnet \
-  vivado -mode batch -source soc/hw/vivado/gemv/build_vivado.tcl
-```
+## Validation state
 
-HLS regenerates RTL from C++. Do not manually edit the generated design RTL.
-Rebuilding hardware is a separate operation and replaces generated outputs;
-the production cleanup does not run either hardware command.
-
-## Deployment and submission
-
-Load the matching bitstream/HWH through PYNQ before starting the application.
-The runtime uses generic UIO at `/dev/uio4` for 0xA0000000 control and the existing
-XRT/ZOCL allocator for DDR. It polls completion. No custom module/DTBO is supplied.
-The verified board used PYNQ 3.0.1, root permissions and 640 MiB CMA.
-Full Qwen repacked weights occupied about 525.2 MB. The grader's CMA capacity,
-UIO mapping and runtime dependencies still require confirmation.
-
-Cross-build and short board CLI/server checks passed before source cleanup.
-The production cleanup rebuilds both executables but does not claim a new
-hardware run or full benchmark validation. Accuracy/performance grading,
-model download URL/hash and `submission.json` remain pending.
-
-Use `gemv-golden` as the baseline and create separate branches for new designs.
-No remote is configured and nothing is pushed by the local cleanup scripts.
+Host C simulation, the full llama.cpp emulation build, the cache/dispatcher, and Linux HAL/backend syntax checks pass. Vitis HLS synthesis/co-simulation, Vivado timing closure, and Ultra96 execution require the LRC and board workflow in [GEMV_Q4_K_M_BUILD_AND_BOARD_RUN.md](../GEMV_Q4_K_M_BUILD_AND_BOARD_RUN.md).

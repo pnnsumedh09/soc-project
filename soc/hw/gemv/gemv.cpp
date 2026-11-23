@@ -1,249 +1,220 @@
 #include "gemv.h"
-#include "dot_q8_0_core.h"
 
-static_assert(SOC_GEMV_HW_MAX_NB == DOT_MAX_NB, "Activation storage must match the supported dot length");
+enum {
+    QK_K             = 256,
+    Q4_K_QUANT_WORDS = 8,
+    Q8_K_BLOCK_BYTES = 292,
+};
 
 static bool finite_half(uint16_t h) {
     return (h & 0x7c00u) != 0x7c00u;
 }
 
-static int32_t dot_beat(soc_gemv_word w, soc_gemv_word x) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS INLINE
-#endif
-    int32_t products[16];
-    int32_t sums8[8], sums4[4], sums2[2];
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS ARRAY_PARTITION variable=products complete
-#pragma HLS ARRAY_PARTITION variable=sums8 complete
-#pragma HLS ARRAY_PARTITION variable=sums4 complete
-#pragma HLS ARRAY_PARTITION variable=sums2 complete
-#endif
-    for (int j = 0; j < 16; ++j) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS UNROLL
-#endif
-        uint8_t wb = (uint8_t) (w >> (8 * j));
-        uint8_t xb = (uint8_t) (x >> (8 * j));
-        int32_t wi = wb < 128 ? (int32_t) wb : (int32_t) wb - 256;
-        int32_t xi = xb < 128 ? (int32_t) xb : (int32_t) xb - 256;
-        products[j] = wi * xi;
-    }
-    for (int j = 0; j < 8; ++j) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS UNROLL
-#endif
-        sums8[j] = products[2 * j] + products[2 * j + 1];
-    }
-    for (int j = 0; j < 4; ++j) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS UNROLL
-#endif
-        sums4[j] = sums8[2 * j] + sums8[2 * j + 1];
-    }
-    for (int j = 0; j < 2; ++j) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS UNROLL
-#endif
-        sums2[j] = sums4[2 * j] + sums4[2 * j + 1];
-    }
-    return sums2[0] + sums2[1];
+static float bits_to_float(uint32_t bits) {
+    union {
+        uint32_t u;
+        float    f;
+    } value;
+
+    value.u = bits;
+    return value.f;
 }
 
-void soc_gemv_hw(const soc_gemv_word * w_quants, const uint16_t * w_scales,
-                 const uint8_t * x_native, float * y,
-                 uint32_t rows, uint32_t nb, uint32_t & status) {
+static float half_to_float(uint16_t h) {
+    uint32_t sign = (uint32_t) (h & 0x8000u) << 16;
+    uint32_t exp  = (h >> 10) & 0x1fu;
+    uint32_t man  = h & 0x3ffu;
+    uint32_t out;
+    if (exp == 0x1f) {
+        out = sign | 0x7f800000u | (man << 13);
+    } else if (exp) {
+        out = sign | ((exp + 112) << 23) | (man << 13);
+    } else if (!man) {
+        out = sign;
+    } else {
+        uint32_t w = man << 6;
+        uint32_t n = 0;
+        if (!(w & 0xff00u)) {
+            n += 8;
+            w <<= 8;
+        }
+        if (!(w & 0xf000u)) {
+            n += 4;
+            w <<= 4;
+        }
+        if (!(w & 0xc000u)) {
+            n += 2;
+            w <<= 2;
+        }
+        if (!(w & 0x8000u)) {
+            n += 1;
+            w <<= 1;
+        }
+        out = sign | ((112 - n) << 23) | (((w >> 5) & 0x3ffu) << 13);
+    }
+    return bits_to_float(out);
+}
+
+static uint8_t word_byte(soc_gemv_word word, unsigned index) {
 #ifndef SOC_GEMV_HW_HOST
-#pragma HLS INTERFACE s_axilite port=return bundle=control
-#pragma HLS INTERFACE s_axilite port=w_quants bundle=control offset=0x10
-#pragma HLS INTERFACE s_axilite port=w_scales bundle=control offset=0x20
-#pragma HLS INTERFACE s_axilite port=x_native bundle=control offset=0x30
-#pragma HLS INTERFACE s_axilite port=y bundle=control offset=0x40
-#pragma HLS INTERFACE s_axilite port=rows bundle=control offset=0x50
-#pragma HLS INTERFACE s_axilite port=nb bundle=control offset=0x58
-#pragma HLS INTERFACE s_axilite port=status bundle=control offset=0x60
+#    pragma HLS INLINE
+#endif
+    return (uint8_t) (word >> (8 * index));
+}
+
+static void scale_min(unsigned group, const uint8_t packed[12], uint8_t & scale, uint8_t & min) {
+#ifndef SOC_GEMV_HW_HOST
+#    pragma HLS INLINE
+#endif
+    if (group < 4) {
+        scale = packed[group] & 63;
+        min   = packed[group + 4] & 63;
+    } else {
+        scale = (packed[group + 4] & 0x0f) | ((packed[group - 4] >> 6) << 4);
+        min   = (packed[group + 4] >> 4) | ((packed[group] >> 6) << 4);
+    }
+}
+
+void soc_gemv_hw(const soc_gemv_word * w_quants,
+                 const soc_gemv_word * w_metadata,
+                 const uint8_t *       x_native,
+                 float *               y,
+                 uint32_t              rows,
+                 uint32_t              nb,
+                 uint32_t &            status) {
+#ifndef SOC_GEMV_HW_HOST
+#    pragma HLS INTERFACE s_axilite port = return bundle = control
+#    pragma HLS INTERFACE s_axilite port = w_quants bundle = control offset = 0x10
+#    pragma HLS INTERFACE s_axilite port = w_metadata bundle = control offset = 0x20
+#    pragma HLS INTERFACE s_axilite port = x_native bundle = control offset = 0x30
+#    pragma HLS INTERFACE s_axilite port = y bundle = control offset = 0x40
+#    pragma HLS INTERFACE s_axilite port = rows bundle = control offset = 0x50
+#    pragma HLS INTERFACE s_axilite port = nb bundle = control offset = 0x58
+#    pragma HLS INTERFACE s_axilite port = status bundle = control offset = 0x60
 #endif
     status = SOC_GEMV_HW_OK;
-    if (rows > SOC_GEMV_HW_MAX_ROWS || nb > SOC_GEMV_HW_MAX_NB || (rows != 0 && nb == 0)) {
+    if (rows > SOC_GEMV_HW_MAX_ROWS || nb > SOC_GEMV_HW_MAX_NB || (rows && !nb)) {
         status = SOC_GEMV_HW_BAD_SHAPE;
         return;
     }
-    if (rows == 0) {
+    if (!rows) {
         return;
     }
 
-    soc_gemv_word x_words[2 * SOC_GEMV_HW_MAX_NB];
-    float x_scales[SOC_GEMV_HW_MAX_NB];
+    int8_t  x_quants[SOC_GEMV_HW_MAX_NB][QK_K];
+    int16_t x_bsums[SOC_GEMV_HW_MAX_NB][QK_K / 16];
+    float   x_scales[SOC_GEMV_HW_MAX_NB];
 #ifndef SOC_GEMV_HW_HOST
-#pragma HLS BIND_STORAGE variable=x_words type=ram_1p impl=bram
+#    pragma HLS BIND_STORAGE variable = x_quants type = ram_2p impl = bram
+#    pragma HLS BIND_STORAGE variable = x_bsums type = ram_1p impl = bram
 #endif
-load_x:
-    for (uint32_t b = 0; b < nb; ++b) {
-        uint32_t base = b * 34;
-        uint16_t scale = (uint16_t) x_native[base] | ((uint16_t) x_native[base + 1] << 8);
-        if (!finite_half(scale)) {
+load_x_blocks:
+    for (uint32_t block = 0; block < nb; ++block) {
+        uint32_t base       = block * Q8_K_BLOCK_BYTES;
+        uint32_t scale_bits = (uint32_t) x_native[base] | (uint32_t) x_native[base + 1] << 8 |
+                              (uint32_t) x_native[base + 2] << 16 | (uint32_t) x_native[base + 3] << 24;
+        float scale = bits_to_float(scale_bits);
+        if (!(scale == scale) || scale > 3.402823466e+38F || scale < -3.402823466e+38F) {
             status = SOC_GEMV_HW_BAD_X_SCALE;
             return;
         }
-        x_scales[b] = dot_half_to_float(scale);
-        for (uint32_t half = 0; half < 2; ++half) {
-            soc_gemv_word word = 0;
-            for (uint32_t j = 0; j < 16; ++j) {
-                word |= soc_gemv_word(x_native[base + 2 + half * 16 + j]) << (8 * j);
-            }
-            x_words[2 * b + half] = word;
+        x_scales[block] = scale;
+load_x_quants:
+        for (unsigned i = 0; i < QK_K; ++i) {
+#ifndef SOC_GEMV_HW_HOST
+#    pragma HLS PIPELINE II = 1
+#endif
+            uint8_t value      = x_native[base + 4 + i];
+            x_quants[block][i] = value < 128 ? (int8_t) value : (int16_t) value - 256;
+        }
+load_x_bsums:
+        for (unsigned i = 0; i < QK_K / 16; ++i) {
+#ifndef SOC_GEMV_HW_HOST
+#    pragma HLS PIPELINE II = 1
+#endif
+            uint32_t offset   = base + 4 + QK_K + 2 * i;
+            x_bsums[block][i] = (int16_t) ((uint16_t) x_native[offset] | (uint16_t) x_native[offset + 1] << 8);
         }
     }
 
-#if SOC_GEMV_HW_ROW_INTERLEAVE == 1
-    uint16_t row_scale_bits[SOC_GEMV_HW_MAX_NB];
-    float row_scales[SOC_GEMV_HW_MAX_NB];
 rows_loop:
     for (uint32_t row = 0; row < rows; ++row) {
-        uint32_t block_base = row * nb;
-read_scales:
-        for (uint32_t b = 0; b < nb; ++b) {
+        float sums[8] = { 0 };
+        float sumf    = 0.0f;
 #ifndef SOC_GEMV_HW_HOST
-#pragma HLS PIPELINE II=1
+#    pragma HLS ARRAY_PARTITION variable = sums complete
 #endif
-            row_scale_bits[b] = w_scales[block_base + b];
-        }
-convert_scales:
-        for (uint32_t b = 0; b < nb; ++b) {
-            if (!finite_half(row_scale_bits[b])) {
+blocks_loop:
+        for (uint32_t block = 0; block < nb; ++block) {
+            uint32_t      matrix_block = row * nb + block;
+            soc_gemv_word metadata     = w_metadata[matrix_block];
+            uint16_t      d_bits       = (uint16_t) word_byte(metadata, 0) | (uint16_t) word_byte(metadata, 1) << 8;
+            uint16_t      dmin_bits    = (uint16_t) word_byte(metadata, 2) | (uint16_t) word_byte(metadata, 3) << 8;
+            if (!finite_half(d_bits) || !finite_half(dmin_bits)) {
                 status = SOC_GEMV_HW_BAD_W_SCALE;
                 return;
             }
-            row_scales[b] = dot_half_to_float(row_scale_bits[b]);
-        }
-
-        float sumf = 0.0f;
-        int32_t first_half = 0;
-        uint32_t word_base = block_base * 2;
+            uint8_t packed_scales[12];
 #ifndef SOC_GEMV_HW_HOST
-#pragma HLS BIND_OP variable=sumf op=fadd
+#    pragma HLS ARRAY_PARTITION variable = packed_scales complete
 #endif
-read_words:
-        for (uint32_t beat = 0; beat < nb * 2; ++beat) {
+            for (unsigned i = 0; i < 12; ++i) {
 #ifndef SOC_GEMV_HW_HOST
-#pragma HLS PIPELINE II=1
+#    pragma HLS UNROLL
 #endif
-            int32_t part = dot_beat(w_quants[word_base + beat], x_words[beat]);
-            if ((beat & 1) == 0) {
-                first_half = part;
-            } else {
-                int32_t sumi = first_half + part;
-                uint32_t b = beat / 2;
-                float scale_product = row_scales[b] * x_scales[b];
-                float term = (float) sumi * scale_product;
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS BIND_OP variable=scale_product op=fmul
-#pragma HLS BIND_OP variable=term op=fmul
-#endif
-                // Preserve the golden block order; no partial FP sums or FMA.
-                sumf = sumf + term;
+                packed_scales[i] = word_byte(metadata, i + 4);
             }
+            soc_gemv_word qwords[Q4_K_QUANT_WORDS];
+#ifndef SOC_GEMV_HW_HOST
+#    pragma HLS ARRAY_PARTITION variable = qwords complete
+#endif
+read_quant_words:
+            for (unsigned word = 0; word < Q4_K_QUANT_WORDS; ++word) {
+#ifndef SOC_GEMV_HW_HOST
+#    pragma HLS PIPELINE II = 1
+#endif
+                qwords[word] = w_quants[matrix_block * Q4_K_QUANT_WORDS + word];
+            }
+            int32_t lanes[8] = { 0 };
+            int32_t min_sum  = 0;
+#ifndef SOC_GEMV_HW_HOST
+#    pragma HLS ARRAY_PARTITION variable = lanes complete
+#endif
+groups_loop:
+            for (unsigned group = 0; group < 8; ++group) {
+                uint8_t scale, min;
+                scale_min(group, packed_scales, scale, min);
+                unsigned chunk = group / 2;
+group_values:
+                for (unsigned i = 0; i < 32; ++i) {
+#ifndef SOC_GEMV_HW_HOST
+#    pragma HLS PIPELINE II = 1
+#endif
+                    soc_gemv_word word   = qwords[chunk * 2 + i / 16];
+                    uint8_t       packed = word_byte(word, i & 15);
+                    int32_t       weight = group & 1 ? packed >> 4 : packed & 0x0f;
+                    lanes[i & 7] += (int32_t) scale * weight * x_quants[block][group * 32 + i];
+                }
+                min_sum += min * (x_bsums[block][2 * group] + x_bsums[block][2 * group + 1]);
+            }
+            float d = half_to_float(d_bits) * x_scales[block];
+accumulate_lanes:
+            for (unsigned lane = 0; lane < 8; ++lane) {
+#ifndef SOC_GEMV_HW_HOST
+#    pragma HLS UNROLL
+#endif
+                sums[lane] += d * lanes[lane];
+            }
+            float dmin = half_to_float(dmin_bits) * x_scales[block];
+            sumf -= dmin * min_sum;
+        }
+finish_lanes:
+        for (unsigned lane = 0; lane < 8; ++lane) {
+#ifndef SOC_GEMV_HW_HOST
+#    pragma HLS PIPELINE II = 1
+#endif
+            sumf += sums[lane];
         }
         y[row] = sumf;
     }
-#else
-    // Eight independent rows share one 16-product datapath. Buffer contiguous
-    // row segments first, then consume them in round-robin order locally.
-    const uint32_t ROWS = SOC_GEMV_HW_ROW_INTERLEAVE;
-    const uint32_t BLOCKS = 32; // 64 quant beats per row, matching the default burst.
-    soc_gemv_word quant_tile[ROWS][2 * BLOCKS];
-    uint16_t scale_bits[ROWS][BLOCKS];
-    float scale_tile[ROWS][BLOCKS];
-    float accum[ROWS];
-    int32_t first_half[ROWS];
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS BIND_STORAGE variable=quant_tile type=ram_1p impl=bram
-#pragma HLS ARRAY_PARTITION variable=accum complete
-#pragma HLS ARRAY_PARTITION variable=first_half complete
-#endif
-row_groups:
-    for (uint32_t row_base = 0; row_base < rows; row_base += ROWS) {
-        uint32_t active_rows = rows - row_base;
-        if (active_rows > ROWS) active_rows = ROWS;
-        for (uint32_t lane = 0; lane < ROWS; ++lane) {
-            accum[lane] = 0.0f;
-            first_half[lane] = 0;
-        }
-block_tiles:
-        for (uint32_t block_base = 0; block_base < nb; block_base += BLOCKS) {
-            uint32_t blocks = nb - block_base;
-            if (blocks > BLOCKS) blocks = BLOCKS;
-load_tile_rows:
-            for (uint32_t lane = 0; lane < active_rows; ++lane) {
-                uint32_t base = (row_base + lane) * nb + block_base;
-load_tile_scales:
-                for (uint32_t b = 0; b < blocks; ++b) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS PIPELINE II=1
-#endif
-                    scale_bits[lane][b] = w_scales[base + b];
-                }
-convert_tile_scales:
-                for (uint32_t b = 0; b < blocks; ++b) {
-                    uint16_t bits = scale_bits[lane][b];
-                    if (!finite_half(bits)) {
-                        status = SOC_GEMV_HW_BAD_W_SCALE;
-                        return;
-                    }
-                    scale_tile[lane][b] = dot_half_to_float(bits);
-                }
-load_tile_words:
-                for (uint32_t beat = 0; beat < 2 * blocks; ++beat) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS PIPELINE II=1
-#endif
-                    quant_tile[lane][beat] = w_quants[2 * base + beat];
-                }
-            }
-interleave_words:
-            for (uint32_t slot = 0; slot < 2 * blocks * ROWS; ++slot) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS PIPELINE II=1
-#endif
-                uint32_t lane = slot % ROWS;
-                uint32_t beat = slot / ROWS;
-                // Rotate on every slot, including inactive lanes in a tail group.
-                // After eight rotations each row returns to its original slot.
-                // The FP feedback travels through eight distinct registers; no
-                // false-dependence directive hides the real accumulator feedback.
-                float next = accum[0];
-                if (lane < active_rows) {
-                    int32_t part = dot_beat(quant_tile[lane][beat],
-                                           x_words[2 * block_base + beat]);
-                    if ((beat & 1) == 0) {
-                        first_half[lane] = part;
-                    } else {
-                        int32_t sumi = first_half[lane] + part;
-                        uint32_t b = beat / 2;
-                        float scale_product = scale_tile[lane][b] * x_scales[block_base + b];
-                        float term = (float) sumi * scale_product;
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS BIND_OP variable=scale_product op=fmul
-#pragma HLS BIND_OP variable=term op=fmul
-#pragma HLS BIND_OP variable=next op=fadd
-#endif
-                        next = next + term;
-                    }
-                }
-                for (uint32_t i = 0; i < ROWS - 1; ++i) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS UNROLL
-#endif
-                    accum[i] = accum[i + 1];
-                }
-                accum[ROWS - 1] = next;
-            }
-        }
-write_rows:
-        for (uint32_t lane = 0; lane < active_rows; ++lane) {
-            y[row_base + lane] = accum[lane];
-        }
-    }
-#endif
-
 }
