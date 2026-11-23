@@ -24,12 +24,32 @@ static void address(soc_gemv_hal *h, uint32_t reg, uint64_t value) {
     h->io.write32(h->io.ctx, reg, (uint32_t)value);
     h->io.write32(h->io.ctx, reg + 4, (uint32_t)(value >> 32));
 }
-int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
-                     uint64_t timeout, uint32_t *status) {
-    if (!h || !j || !status || !h->io.read32 || !h->io.write32 ||
+static uint64_t read64(soc_gemv_hal *h, uint32_t reg) {
+    uint64_t low = h->io.read32(h->io.ctx, reg);
+    return low | ((uint64_t)h->io.read32(h->io.ctx, reg + 4) << 32);
+}
+static void timer_start(soc_gemv_hal *h) {
+    h->io.write32(h->io.ctx, SOC_GEMV_REG_TIMER_TCSR, SOC_GEMV_TIMER_OVERFLOW);
+    h->io.write32(h->io.ctx, SOC_GEMV_REG_TIMER_TLR, 0);
+    h->io.write32(h->io.ctx, SOC_GEMV_REG_TIMER_TCSR, SOC_GEMV_TIMER_LOAD);
+    h->io.write32(h->io.ctx, SOC_GEMV_REG_TIMER_TCSR, SOC_GEMV_TIMER_ENABLE);
+}
+static int timer_stop(soc_gemv_hal *h, uint64_t *cycles) {
+    h->io.write32(h->io.ctx, SOC_GEMV_REG_TIMER_TCSR, 0);
+    uint32_t control = h->io.read32(h->io.ctx, SOC_GEMV_REG_TIMER_TCSR);
+    uint32_t count = h->io.read32(h->io.ctx, SOC_GEMV_REG_TIMER_TCR);
+    if (control & SOC_GEMV_TIMER_OVERFLOW) return fail(EOVERFLOW);
+    *cycles = count;
+    return 0;
+}
+int soc_gemv_hal_run_profiled(soc_gemv_hal *h, const soc_gemv_job *j,
+                              uint64_t timeout, uint32_t *status,
+                              soc_gemv_hw_counters *counters) {
+    if (!h || !j || !status || !counters || !h->io.read32 || !h->io.write32 ||
         !h->io.now_ns || !h->io.to_device || !h->io.to_cpu || !timeout)
         return fail(EINVAL);
     *status = UINT32_MAX;
+    *counters = (soc_gemv_hw_counters){0};
     if (h->poisoned) return fail(EIO);
     if (validate_job(j)) return -1;
     uint32_t ctrl = h->io.read32(h->io.ctx, SOC_GEMV_REG_CTRL);
@@ -37,6 +57,9 @@ int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
         return fail(EBUSY);
     /* Reading CTRL clears stale DONE; reading VALID clears stale output-valid. */
     (void)h->io.read32(h->io.ctx, SOC_GEMV_REG_STATUS_VALID);
+    (void)h->io.read32(h->io.ctx, SOC_GEMV_REG_READ_BYTES_VALID);
+    (void)h->io.read32(h->io.ctx, SOC_GEMV_REG_WRITE_BYTES_VALID);
+    (void)h->io.read32(h->io.ctx, SOC_GEMV_REG_MACS_VALID);
     h->io.write32(h->io.ctx, SOC_GEMV_REG_GIE, 0); /* Polling, no interrupts. */
     address(h, SOC_GEMV_REG_W, j->quants);
     address(h, SOC_GEMV_REG_S, j->scales);
@@ -45,6 +68,7 @@ int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
     h->io.write32(h->io.ctx, SOC_GEMV_REG_ROWS, j->rows);
     h->io.write32(h->io.ctx, SOC_GEMV_REG_NB, j->nb);
     h->io.to_device(h->io.ctx);
+    timer_start(h);
     uint64_t start = h->io.now_ns(h->io.ctx);
     h->io.write32(h->io.ctx, SOC_GEMV_REG_CTRL, SOC_GEMV_START);
     int done = 0;
@@ -53,17 +77,42 @@ int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
         done |= !!(ctrl & SOC_GEMV_DONE);
         if (done && (ctrl & SOC_GEMV_IDLE)) break;
         if (h->io.now_ns(h->io.ctx) - start >= timeout) {
+            h->io.write32(h->io.ctx, SOC_GEMV_REG_TIMER_TCSR, 0);
             h->poisoned = 1;
             return fail(ETIMEDOUT);
         }
     }
+    if (timer_stop(h, &counters->pl_cycles)) {
+        h->poisoned = 1;
+        return -1;
+    }
     h->io.to_cpu(h->io.ctx);
-    if (!(h->io.read32(h->io.ctx, SOC_GEMV_REG_STATUS_VALID) & 1)) {
+    uint32_t valid = h->io.read32(h->io.ctx, SOC_GEMV_REG_STATUS_VALID) & 1;
+    valid &= h->io.read32(h->io.ctx, SOC_GEMV_REG_READ_BYTES_VALID) & 1;
+    valid &= h->io.read32(h->io.ctx, SOC_GEMV_REG_WRITE_BYTES_VALID) & 1;
+    valid &= h->io.read32(h->io.ctx, SOC_GEMV_REG_MACS_VALID) & 1;
+    if (!valid) {
         h->poisoned = 1;
         return fail(EPROTO);
     }
     *status = h->io.read32(h->io.ctx, SOC_GEMV_REG_STATUS);
+    counters->read_bytes = read64(h, SOC_GEMV_REG_READ_BYTES);
+    counters->write_bytes = read64(h, SOC_GEMV_REG_WRITE_BYTES);
+    counters->macs = read64(h, SOC_GEMV_REG_MACS);
+    if (*status == 0 &&
+        (counters->read_bytes != (uint64_t)j->rows * j->nb * 34 + (uint64_t)j->nb * 34 ||
+         counters->write_bytes != (uint64_t)j->rows * 4 ||
+         counters->macs != (uint64_t)j->rows * j->nb * 32)) {
+        h->poisoned = 1;
+        return fail(EPROTO);
+    }
     return *status == 0 ? 0 : fail(EDOM);
+}
+
+int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
+                     uint64_t timeout, uint32_t *status) {
+    soc_gemv_hw_counters counters;
+    return soc_gemv_hal_run_profiled(h, j, timeout, status, &counters);
 }
 
 int soc_gemv_hal_run_chain(soc_gemv_hal *h, const soc_gemv_job *jobs,
@@ -109,7 +158,8 @@ int soc_gemv_hal_run_chain(soc_gemv_hal *h, const soc_gemv_job *jobs,
         }
         uint64_t job_start = h->io.now_ns(h->io.ctx);
         uint32_t status = UINT32_MAX;
-        int rc = soc_gemv_hal_run(h, &jobs[i], timeout - elapsed, &status);
+        soc_gemv_hw_counters counters;
+        int rc = soc_gemv_hal_run_profiled(h, &jobs[i], timeout - elapsed, &status, &counters);
         int saved = errno;
         uint64_t job_elapsed = h->io.now_ns(h->io.ctx) - job_start;
         uint64_t weights = (uint64_t)jobs[i].rows * jobs[i].nb * 34;
@@ -120,6 +170,7 @@ int soc_gemv_hal_run_chain(soc_gemv_hal *h, const soc_gemv_job *jobs,
         results[i].read_bytes = weights + activation;
         results[i].write_bytes = output;
         results[i].macs = macs;
+        results[i].pl_cycles = counters.pl_cycles;
         results[i].kernel_status = status;
         results[i].error_code = rc ? saved : 0;
         summary->weight_bytes += weights;

@@ -13,6 +13,7 @@ int main(void) {
     soc_q8r_mat m;
     unsigned char *native=calloc((size_t)rows*nb,34), *x=calloc(nb,34);
     float got[9], expected[9]; int failed=1;
+    uint64_t pl_cycles=0,read_bytes=0,write_bytes=0,macs=0;
     if (!native || !x || b->alloc(qb,&q,&qd,&qh) || b->alloc(sb,&s,&sd,&sh) ||
         soc_q8r_init(&m,rows,nb,q,qb,s,sb)) goto out;
     for (uint32_t block=0; block<rows*nb; ++block) {
@@ -40,12 +41,17 @@ int main(void) {
     for (unsigned i=0;i<9;++i) if (got[i]!=-123.5f) goto out;
     x[1]=0x38;
     if (b->run(&m,qd,sd,x,got) || memcmp(got,expected,sizeof(got))) goto out;
+    if (!b->last_counters || b->last_counters(&pl_cycles,&read_bytes,&write_bytes,&macs) ||
+        !pl_cycles || read_bytes!=(uint64_t)rows*nb*34+(uint64_t)nb*34 ||
+        write_bytes!=(uint64_t)rows*4 || macs!=(uint64_t)rows*nb*32) goto out;
     failed=0;
 out:
     if (failed) perror("FPGA smoke failure");
     if (qh) b->free(qh);
     if (sh) b->free(sh);
     b->shutdown(); free(native); free(x);
-    printf("FPGA board GEMV smoke: %s\n",failed?"FAIL":"PASS");
+    printf("FPGA board GEMV smoke: %s; pl_cycles=%llu read_bytes=%llu write_bytes=%llu macs=%llu\n",
+           failed?"FAIL":"PASS",(unsigned long long)pl_cycles,(unsigned long long)read_bytes,
+           (unsigned long long)write_bytes,(unsigned long long)macs);
     return failed;
 }

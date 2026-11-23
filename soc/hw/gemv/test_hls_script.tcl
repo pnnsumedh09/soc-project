@@ -62,10 +62,11 @@ proc cosim_design {args} {
 }
 source $script
 if {!$ran_cosim} { error "Missing RTL co-simulation dispatch" }
-# Baseline and candidate must not reset the same generated project.
-set ::env(SOC_GEMV_HW_ROW_INTERLEAVE) 8
+# Reference and candidate must not reset the same generated project.
+set ::env(SOC_GEMV_HW_DOUBLE_BUFFER) 0
+set ::env(SOC_GEMV_HW_ROW_INTERLEAVE) 1
 source $script
-if {$project_names ne {f150_b64_o8 f150_b64_o8 f150_b64_o8_r8}} {
+if {$project_names ne {f150_b64_o8_r8_db f150_b64_o8_r8_db f150_b64_o8}} {
     error "Baseline/candidate project separation failed: $project_names"
 }
 set ::env(SOC_GEMV_HW_ROW_INTERLEAVE) 3

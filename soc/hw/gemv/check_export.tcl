@@ -13,6 +13,9 @@ proc soc_gemv_check_registers {ip_repo} {
         AP_CTRL 0x00 GIE 0x04 W_QUANTS_DATA 0x10 W_SCALES_DATA 0x20
         X_NATIVE_DATA 0x30 Y_DATA 0x40 ROWS_DATA 0x50 NB_DATA 0x58
         STATUS_DATA 0x60 STATUS_CTRL 0x64
+        READ_BYTES_DATA 0x70 READ_BYTES_CTRL 0x78
+        WRITE_BYTES_DATA 0x80 WRITE_BYTES_CTRL 0x88
+        MACS_DATA 0x90 MACS_CTRL 0x98
     } {
         set macro XSOC_GEMV_HW_CONTROL_ADDR_$suffix
         set pattern [format {#define\s+%s\s+(0x[0-9a-fA-F]+|[0-9]+)} $macro]

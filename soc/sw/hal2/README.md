@@ -1,6 +1,6 @@
 # P4.2: GEMV register HAL and optional FPGA backend
 
-Source implemented and locally tested; target Linux/UIO/DMA setup and board operation are NOT yet verified. No HLS arithmetic change. Sequential GEMV remains the selected design. The course board's supported allocator/access method is still unknown, so the Linux adapter is optional, not an established submission dependency.
+Source implemented and locally tested; target Linux/UIO/DMA setup and board operation are NOT yet verified for the new build. Row-interleave-8 is selected, the HLS ABI publishes logical counters, and an AXI Timer measures the PL submission/completion window. See `../../docs/COMBINATION_A_R8_COUNTERS_END_TO_END.md`.
 
 ## What is implemented
 
@@ -22,9 +22,11 @@ python3 soc/hw/vivado/gemv/test_scripts.py
 
 HAL tests use fake MMIO and clock callbacks. They cover stale DONE/valid, split 64-bit addresses, repeated calls, chain completion, chain prevalidation, partial failure, logical counters, delayed idle, nonzero kernel status, invalid descriptors, auto-restart/busy rejection, timeout quarantine and missing status-valid. Arena checks cover alignment, allocation failure, CPU/device identity and free/coalescing. The fallback test deliberately uses `/dev/null/no-uio`, so it cannot access real hardware. Board test compilation alone does not validate DMA.
 
+On an x86-64 LRC host, the final fallback test intentionally prints `Linux/AArch64 board required` and `backend 'fpga' init failed`, followed by `HOST NEGATIVE TEST: unavailable FPGA backend uses CPU fallback: PASS`. This is a successful refusal test, not an attempt to run the FPGA from LRC. Only `board_registers` and `board_smoke`, run on the Linux/AArch64 Ultra96 with matching hardware, exercise physical MMIO/DMA.
+
 ## Board prerequisites for this optional adapter
 
-1. Matching sequential GEMV bitstream loaded, PS HP0/DDR initialized and 150 MHz (or the selected clock) actually configured. UIO map0 exposes the GEMV control bank, default physical base `0xA0000000`, at least 64 KiB, map offset zero. This code polls and does not require an interrupt.
+1. Matching r8/double-buffer/counter GEMV bitstream loaded, PS HP0/DDR initialized and the selected clock actually configured. UIO map0 exposes GEMV at `0xA0000000` and the AXI Timer at `0xA0001000`, covers at least 64 KiB, and has map offset zero. This code polls and does not require an interrupt.
 2. Course-approved Linux UIO and **ikwzm u-dma-buf** driver, not the unrelated upstream Linux `/dev/udmabuf` API. Device/sysfs pairs must refer to the same device. The script does not install/load drivers or modify device trees.
 3. Dedicated persistent contiguous pool, 4-KiB aligned and wholly below 2 GiB (`0x80000000`), matching the implemented HP0_DDR_LOW address segment, with the reported physical address directly visible to PL (no unaccounted SMMU/IOMMU translation). Pool must not overlap OS-owned DDR or other DMA users.
 4. `sync_mode=2` or `6` and `dma_coherent=0`, opened `O_SYNC` for noncached write-combined CPU access on AArch64. Cached/coherent mappings are refused for this HP0 strategy. Do not change pool cache policy or access it through a conflicting cached alias while this backend owns it.

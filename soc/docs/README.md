@@ -1,6 +1,6 @@
 # SoC Project Documentation Index
 
-Current GEMV selection: sequential direct weight-read kernel (`ROW_INTERLEAVE=1`) is the default. Row interleaving and double-buffering work are deferred at Sumedh's request; the verified r8 experiment and its results are retained for reference.
+Current Combination A selection: row interleave 8 with two 16-block ping-pong weight/scale banks and counter instrumentation. The scalar and r8-only forms remain selectable as references. See `COMBINATION_A_R8_COUNTERS_END_TO_END.md` for the authoritative validation workflow; vendor and board evidence for the new default is still pending.
 
 
 **Project:** ECE382M.20 Edge LLM Inference SoC — GEMV Acceleration

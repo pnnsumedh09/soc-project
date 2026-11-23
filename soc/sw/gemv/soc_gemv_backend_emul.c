@@ -53,4 +53,5 @@ const soc_gemv_backend soc_gemv_backend_emul = {
     .alloc    = emul_alloc,
     .free     = emul_free,
     .run      = emul_run,
+    .last_counters = NULL,
 };

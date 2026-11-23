@@ -1,4 +1,6 @@
-# P4.1: sequential GEMV Vivado integration
+# P4.1: GEMV Vivado integration
+
+The Combination A default is the row-interleave-8, double-buffered export. The r8-only and sequential exports remain selectable for reference. The authoritative r8, double-buffer and counter workflow is `../../../docs/COMBINATION_A_R8_COUNTERS_END_TO_END.md`.
 
 Source written; local Tcl guard/topology checks use mocked vendor commands. No actual Vivado block-design validation, implementation, routed timing or board execution has been performed here. The course tutorial and actual LRC discovery establish the Avnet Ultra96-V2 preset: HLS remains `xczu3eg-sbva484-1-e`, while Vivado creates the board project for `xczu3eg-sbva484-1-i`. The script permits only this documented Avnet Ultra96-V2 mismatch; it does not retarget or rebuild the HLS IP.
 
@@ -7,12 +9,12 @@ Source written; local Tcl guard/topology checks use mocked vendor commands. No a
 - PS `M_AXI_HPM0_FPD` → 1×1 control SmartConnect → GEMV `s_axi_control`.
 - GEMV `m_axi_weights`, `m_axi_scales`, `m_axi_activation`, `m_axi_output_r` → 4×1 memory SmartConnect → PS noncoherent `S_AXI_HP0_FPD` at 128 bits.
 - PL clock drives IP, interconnect and PS AXI clock inputs; `proc_sys_reset` distributes synchronous active-low resets. GEMV `interrupt` connects to PS `pl_ps_irq0`; polling remains usable for initial bring-up.
-- Control bank explicitly assigned 64 KiB at `0xA0000000` by default. Automatic memory address assignment, `validate_bd_design`, saved BD Tcl and exported address map.
+- GEMV control occupies 4 KiB at `0xA0000000`; the PL-clock profiling timer occupies 4 KiB at `0xA0001000`. The enclosing UIO map remains at least 64 KiB. Automatic memory address assignment, `validate_bd_design`, saved BD Tcl and exported address map remain enabled.
 - Bitstream stage runs implementation, requires both setup/hold timing checks to pass and exports matching BIT/HWH/XSA under `soc/hw/out/`.
 
 ## Before writing versus before running
 
-Existing sequential kernel C/synthesis/RTL PASS evidence is sufficient to write this integration. No kernel rerun is required merely because scripts/HAL were added. The next boundaries are export/preflight, vendor BD validation, implemented timing, then board memory/MMIO/DMA smoke testing. Board setup and autograder permission remain unresolved; source completion is not a hardware result.
+The counter ABI and timer topology require a new r8 HLS export, Vivado implementation, paired BIT/HWH and matching software. Old scalar artifacts are not compatible with the counter-valid checks.
 
 ## 1. Package existing sequential HLS synthesis if not already exported
 
@@ -55,7 +57,7 @@ Then set `SOC_GEMV_BUILD_STAGE=bd` on the same Vivado command. Optional `SOC_GEM
 
 Keep the validated design's address map. Only then use `SOC_GEMV_BUILD_STAGE=bitstream` with the same settings. Work is `soc/hw/vivado/gemv_f150_b64_o8/`; this script recreates that generated project for each BD/build stage. Source scripts live separately in `soc/hw/vivado/gemv/`.
 
-Shared HLS knobs: `SOC_GEMV_HW_MHZ=100/150/200`, `SOC_GEMV_HW_BURST=1/4/16/64/256`, `SOC_GEMV_HW_OUTSTANDING=1..32`, `SOC_GEMV_HW_PART` (-e/-i). Only `SOC_GEMV_HW_ROW_INTERLEAVE=1` is supported by this integration. Additional knobs: `SOC_GEMV_JOBS=8`, `SOC_GEMV_CONTROL_BASE` (64-KiB aligned in 0xA0000000..0xAFFF0000). Update HAL/UIO expectations if changing the base.
+Shared HLS knobs: `SOC_GEMV_HW_MHZ=100/150/200`, `SOC_GEMV_HW_BURST=1/4/16/64/256`, `SOC_GEMV_HW_OUTSTANDING=1..32`, `SOC_GEMV_HW_PART` (-e/-i), `SOC_GEMV_HW_ROW_INTERLEAVE=1/8`, and `SOC_GEMV_HW_DOUBLE_BUFFER=0/1`. Defaults are r8 and double buffer 1; row interleave 1 requires double buffer 0. Additional knobs: `SOC_GEMV_JOBS=8`, `SOC_GEMV_CONTROL_BASE` (64-KiB aligned in 0xA0000000..0xAFFF0000). Update HAL/UIO expectations if changing the base.
 
 ## Local script checks
 

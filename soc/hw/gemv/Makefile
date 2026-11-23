@@ -4,12 +4,13 @@ CFLAGS ?= -O2 -g
 CXXFLAGS ?= -O2 -g
 COMMON_FLAGS = -Wall -Wextra -ffp-contract=off
 INCLUDES = -I../../sw/repack -I../../lab3_ref/part3
-ROW_INTERLEAVE ?= 1
+ROW_INTERLEAVE ?= 8
+DOUBLE_BUFFER ?= 1
 MODEL ?= ../../../../qwen2.5-0.5b-instruct-q8_0.gguf
 DUMPDIR ?= /tmp/soc_gemv_tensors
 
 test_gemv_hw: FORCE gemv.cpp gemv.h tb.cpp soc_repack_ref.o dot_core.o
-	$(CXX) $(CXXFLAGS) $(COMMON_FLAGS) -Wno-unused-label -std=c++11 -DSOC_GEMV_HW_HOST -DSOC_GEMV_HW_ROW_INTERLEAVE=$(ROW_INTERLEAVE) $(INCLUDES) gemv.cpp tb.cpp soc_repack_ref.o dot_core.o -lm -o $@
+	$(CXX) $(CXXFLAGS) $(COMMON_FLAGS) -Wno-unused-label -std=c++11 -DSOC_GEMV_HW_HOST -DSOC_GEMV_HW_ROW_INTERLEAVE=$(ROW_INTERLEAVE) -DSOC_GEMV_HW_DOUBLE_BUFFER=$(DOUBLE_BUFFER) $(INCLUDES) gemv.cpp tb.cpp soc_repack_ref.o dot_core.o -lm -o $@
 
 soc_repack_ref.o: ../../sw/repack/soc_repack.c ../../sw/repack/soc_repack.h
 	$(CC) $(CFLAGS) $(COMMON_FLAGS) -std=c11 $(INCLUDES) -c $< -o $@

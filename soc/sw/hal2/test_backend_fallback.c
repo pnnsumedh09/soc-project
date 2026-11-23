@@ -7,6 +7,7 @@
 #include <string.h>
 int main(void) {
     /* Guaranteed unavailable configuration: cannot touch an actual UIO device. */
+    fputs("HOST NEGATIVE TEST: the next FPGA initialization refusal is expected; no board access is attempted\n", stderr);
     setenv("SOC_GEMV", "1", 1);
     setenv("SOC_GEMV_BACKEND", "fpga", 1);
     setenv("SOC_GEMV_STRICT", "0", 1);
@@ -22,6 +23,6 @@ int main(void) {
     assert(!memcmp(out+1,expected,sizeof(expected)) && out[0]==-99 && out[3]==-99);
     soc_gemv_stats st; soc_gemv_get_stats(&st);
     assert(st.calls==0 && st.tensors==0 && st.fallback_calls==1);
-    puts("Unavailable FPGA backend uses CPU fallback: PASS");
+    puts("HOST NEGATIVE TEST: unavailable FPGA backend uses CPU fallback: PASS");
     return 0;
 }

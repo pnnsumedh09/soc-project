@@ -17,10 +17,15 @@ proc main {} {
     set mhz [setting SOC_GEMV_HW_MHZ 150]
     set burst [setting SOC_GEMV_HW_BURST 64]
     set outstanding [setting SOC_GEMV_HW_OUTSTANDING 8]
+    set interleave [setting SOC_GEMV_HW_ROW_INTERLEAVE 8]
+    set double_buffer [setting SOC_GEMV_HW_DOUBLE_BUFFER 1]
     if {$mhz ni {100 150 200} || $burst ni {1 4 16 64 256} ||
         ![string is integer -strict $outstanding] || $outstanding < 1 || $outstanding > 32 ||
-        [setting SOC_GEMV_HW_ROW_INTERLEAVE 1] ne "1"} { error "Select a valid sequential HLS configuration" }
+        $interleave ni {1 8} || $double_buffer ni {0 1} ||
+        ($interleave == 1 && $double_buffer != 0)} { error "Select a valid HLS configuration" }
     set tag f${mhz}_b${burst}_o${outstanding}
+    if {$interleave != 1} { append tag _r${interleave} }
+    if {$double_buffer} { append tag _db }
     set rtl [file normalize [setting SOC_GEMV_REGISTER_RTL \
         "$here/../../hls_work/gemv/$tag/solution/syn/verilog/soc_gemv_hw_control_s_axi.v"]]
     if {![file isfile $rtl]} { error "Missing generated register bank: $rtl; restore the existing synthesis RTL" }

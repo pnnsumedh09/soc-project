@@ -5,7 +5,7 @@ module tb_gemv_registers;
     reg ACLK=0;
     always #5 ACLK=~ACLK;
     reg ARESET=1, ACLK_EN=1;
-    reg [6:0] AWADDR=0, ARADDR=0;
+    reg [7:0] AWADDR=0, ARADDR=0;
     reg AWVALID=0, WVALID=0, BREADY=0, ARVALID=0, RREADY=0;
     reg [31:0] WDATA=0;
     reg [3:0] WSTRB=0;
@@ -16,6 +16,8 @@ module tb_gemv_registers;
     reg ap_done=0,ap_ready=0,ap_idle=1;
     reg [31:0] status=0;
     reg status_ap_vld=0;
+    reg [63:0] read_bytes=0,write_bytes=0,macs=0;
+    reg read_bytes_ap_vld=0,write_bytes_ap_vld=0,macs_ap_vld=0;
     wire [63:0] w_quants,w_scales,x_native,y;
     wire [31:0] rows,nb;
     integer reads=0,writes=0,checks=0;
@@ -32,6 +34,9 @@ module tb_gemv_registers;
         .interrupt(interrupt),.w_quants(w_quants),.w_scales(w_scales),
         .x_native(x_native),.y(y),.rows(rows),.nb(nb),
         .status(status),.status_ap_vld(status_ap_vld),
+        .read_bytes(read_bytes),.read_bytes_ap_vld(read_bytes_ap_vld),
+        .write_bytes(write_bytes),.write_bytes_ap_vld(write_bytes_ap_vld),
+        .macs(macs),.macs_ap_vld(macs_ap_vld),
         .ap_start(ap_start),.ap_done(ap_done),.ap_ready(ap_ready),.ap_idle(ap_idle)
     );
 
@@ -44,7 +49,7 @@ module tb_gemv_registers;
 
     // AW and W are driven independently and held until their own handshake.
     // This supports HLS's address-before-data slave even when W arrives first.
-    task automatic axi_write(input [6:0] addr,input [31:0] data,input [3:0] strobe,
+    task automatic axi_write(input [7:0] addr,input [31:0] data,input [3:0] strobe,
                              input integer aw_delay,input integer w_delay,input integer stall);
         reg [1:0] held;
         begin
@@ -79,7 +84,7 @@ module tb_gemv_registers;
         end
     endtask
 
-    task automatic axi_read(input [6:0] addr,input integer stall,output [31:0] data);
+    task automatic axi_read(input [7:0] addr,input integer stall,output [31:0] data);
         reg [31:0] held;
         reg [1:0] response;
         begin
@@ -102,7 +107,7 @@ module tb_gemv_registers;
         end
     endtask
 
-    task automatic expect_read(input [6:0] addr,input [31:0] wanted,input [31:0] mask);
+    task automatic expect_read(input [7:0] addr,input [31:0] wanted,input [31:0] mask);
         reg [31:0] value;
         begin
             axi_read(addr,2,value);
@@ -136,6 +141,8 @@ module tb_gemv_registers;
             @(negedge ACLK);
             AWVALID=0; WVALID=0; BREADY=0; ARVALID=0; RREADY=0;
             ap_done=0; ap_ready=0; ap_idle=1; status_ap_vld=0; status=0;
+            read_bytes=0; write_bytes=0; macs=0;
+            read_bytes_ap_vld=0; write_bytes_ap_vld=0; macs_ap_vld=0;
             ARESET=1;
             repeat(4) @(posedge ACLK);
             @(negedge ACLK); ARESET=0;
@@ -222,8 +229,12 @@ module tb_gemv_registers;
         expect_read(7'h00,8,8);
         expect_read(7'h00,0,8);
         @(negedge ACLK); ap_done=1; ap_idle=1; status=3; status_ap_vld=1;
+        read_bytes=64'h1122334455667788; write_bytes=64'h0102030405060708;
+        macs=64'h8877665544332211;
+        read_bytes_ap_vld=1; write_bytes_ap_vld=1; macs_ap_vld=1;
         @(posedge ACLK);
         @(negedge ACLK); ap_done=0; status_ap_vld=0;
+        read_bytes_ap_vld=0; write_bytes_ap_vld=0; macs_ap_vld=0;
         axi_write(7'h00,0,4'hf,0,0,1);
         expect_read(7'h00,6,6);
         expect_read(7'h00,4,6);
@@ -232,6 +243,16 @@ module tb_gemv_registers;
         axi_write(7'h64,0,4'hf,1,0,0);
         expect_read(7'h64,1,1);
         expect_read(7'h64,0,1);
+        expect_read(8'h70,32'h55667788,32'hffffffff);
+        expect_read(8'h74,32'h11223344,32'hffffffff);
+        expect_read(8'h78,1,1);
+        expect_read(8'h78,0,1);
+        expect_read(8'h80,32'h05060708,32'hffffffff);
+        expect_read(8'h84,32'h01020304,32'hffffffff);
+        expect_read(8'h88,1,1);
+        expect_read(8'h90,32'h44332211,32'hffffffff);
+        expect_read(8'h94,32'h88776655,32'hffffffff);
+        expect_read(8'h98,1,1);
         axi_write(7'h64,1,4'hf,0,0,0);
         expect_read(7'h64,0,1);
         @(negedge ACLK); ap_idle=0;

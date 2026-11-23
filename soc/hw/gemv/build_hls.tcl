@@ -7,25 +7,29 @@ proc setting {name fallback} {
 set mhz [setting SOC_GEMV_HW_MHZ 150]
 set burst [setting SOC_GEMV_HW_BURST 64]
 set outstanding [setting SOC_GEMV_HW_OUTSTANDING 8]
-set interleave [setting SOC_GEMV_HW_ROW_INTERLEAVE 1]
+set interleave [setting SOC_GEMV_HW_ROW_INTERLEAVE 8]
+set double_buffer [setting SOC_GEMV_HW_DOUBLE_BUFFER 1]
 set stage [setting SOC_GEMV_HW_STAGE csim]
 set part [setting SOC_GEMV_HW_PART xczu3eg-sbva484-1-e]
 set host_cc [setting SOC_GEMV_HW_CC cc]
 if {$mhz ni {100 150 200} || $burst ni {1 4 16 64 256} ||
     ![string is integer -strict $outstanding] || $outstanding < 1 || $outstanding > 32 ||
-    $interleave ni {1 8} || $stage ni {csim synth cosim export} || $part ni {xczu3eg-sbva484-1-e xczu3eg-sbva484-1-i}} {
-    error "Use MHz=100/150/200, burst=1/4/16/64/256, outstanding=1..32, interleave=1/8, stage=csim/synth/cosim/export, part=-e/-i"
+    $interleave ni {1 8} || $double_buffer ni {0 1} ||
+    ($interleave == 1 && $double_buffer != 0) ||
+    $stage ni {csim synth cosim export} || $part ni {xczu3eg-sbva484-1-e xczu3eg-sbva484-1-i}} {
+    error "Use MHz=100/150/200, burst=1/4/16/64/256, outstanding=1..32, interleave=1/8, double-buffer=0/1 (r8 only), stage=csim/synth/cosim/export, part=-e/-i"
 }
 # Keep the already verified r1 project intact when building the new candidate.
 set tag f${mhz}_b${burst}_o${outstanding}
 if {$interleave != 1} { append tag _r${interleave} }
+if {$double_buffer} { append tag _db }
 set work [file normalize "$here/../hls_work/gemv/$tag"]
 file mkdir [file dirname $work]
 cd [file dirname $work]
 open_project -reset [file tail $work]
 set_top soc_gemv_hw
 set includes "-I$soc/sw/repack -I$soc/lab3_ref/part3"
-set flags "-std=c++11 -ffp-contract=off -DSOC_GEMV_HW_ROW_INTERLEAVE=$interleave $includes"
+set flags "-std=c++11 -ffp-contract=off -DSOC_GEMV_HW_ROW_INTERLEAVE=$interleave -DSOC_GEMV_HW_DOUBLE_BUFFER=$double_buffer $includes"
 add_files "$here/gemv.cpp" -cflags $flags
 add_files "$soc/lab3_ref/part3/dot_q8_0_core.cpp" -cflags $flags
 add_files -tb "$here/tb.cpp" -cflags $flags

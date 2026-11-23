@@ -74,7 +74,9 @@ static int env_flag(const char *name, int dflt)
 }
 
 static void profile_row(uint32_t tensor_id, uint32_t rows, uint32_t nb,
-                        const char *path, int cache_hit, uint64_t elapsed_ns)
+                        const char *path, int cache_hit, uint64_t elapsed_ns,
+                        uint64_t pl_cycles, uint64_t hw_read_bytes,
+                        uint64_t hw_write_bytes, uint64_t hw_macs)
 {
     if (!g_profile)
         return;
@@ -82,13 +84,15 @@ static void profile_row(uint32_t tensor_id, uint32_t rows, uint32_t nb,
     uint64_t activation = (uint64_t)nb * SOC_Q8_0_BLOCK_BYTES;
     uint64_t output = (uint64_t)rows * sizeof(float);
     uint64_t macs = (uint64_t)rows * nb * SOC_QK;
-    fprintf(g_profile, "%llu,%u,%u,%llu,%s,%d,%llu,%llu,%llu,%llu,%llu\n",
+    fprintf(g_profile, "%llu,%u,%u,%llu,%s,%d,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
             (unsigned long long)++g_profile_call, tensor_id, rows,
             (unsigned long long)nb * SOC_QK,
             path, cache_hit,
             (unsigned long long)weights, (unsigned long long)activation,
             (unsigned long long)output, (unsigned long long)macs,
-            (unsigned long long)elapsed_ns);
+            (unsigned long long)elapsed_ns, (unsigned long long)pl_cycles,
+            (unsigned long long)hw_read_bytes, (unsigned long long)hw_write_bytes,
+            (unsigned long long)hw_macs);
 }
 
 static void at_exit_handler(void)
@@ -116,7 +120,7 @@ static void init_once(void)
         g_profile = fopen(profile_path, "w");
         if (g_profile) {
             setvbuf(g_profile, NULL, _IOLBF, 0);
-            fputs("call,tensor_id,rows,n,path,cache_hit,weight_bytes,activation_bytes,output_bytes,macs,elapsed_ns\n",
+            fputs("call,tensor_id,rows,n,path,cache_hit,weight_bytes,activation_bytes,output_bytes,macs,elapsed_ns,pl_cycles,hw_read_bytes,hw_write_bytes,hw_macs\n",
                   g_profile);
         } else {
             fprintf(stderr, "soc_gemv: cannot open profile trace '%s'\n", profile_path);
@@ -340,7 +344,7 @@ void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n
         pthread_mutex_lock(&g_lock);
         g_st.fallback_calls++;
         g_st.fallback_ns += elapsed;
-        profile_row(0, rows, nb, shape_ok ? "fallback" : "invalid", 0, elapsed);
+        profile_row(0, rows, nb, shape_ok ? "fallback" : "invalid", 0, elapsed, 0, 0, 0, 0);
         pthread_mutex_unlock(&g_lock);
         return;
     }
@@ -354,11 +358,20 @@ void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n
         ++s->uses;
     int rc = -1;
     uint64_t backend_elapsed = 0;
+    uint64_t pl_cycles = 0, hw_read_bytes = 0, hw_write_bytes = 0, hw_macs = 0;
     if (s && s->state == SLOT_READY) {
         uint64_t t0 = now_ns();
         rc = g_be->run(&s->mat, s->q_dev, s->s_dev, x, y);
         uint64_t dt = now_ns() - t0;
         backend_elapsed = dt;
+        if (rc == 0) {
+            if (g_be->last_counters &&
+                g_be->last_counters(&pl_cycles, &hw_read_bytes, &hw_write_bytes, &hw_macs) != 0) {
+                fprintf(stderr, "soc_gemv: hardware counter read failed\n");
+                if (g_strict) abort();
+                rc = -1;
+            }
+        }
         if (rc == 0) {
             g_st.calls++;
             g_st.rows += rows;
@@ -366,6 +379,10 @@ void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n
             g_st.activation_bytes += (uint64_t)nb * SOC_Q8_0_BLOCK_BYTES;
             g_st.output_bytes += (uint64_t)rows * sizeof(float);
             g_st.macs += (uint64_t)rows * nb * SOC_QK;
+            g_st.pl_cycles += pl_cycles;
+            g_st.hw_read_bytes += hw_read_bytes;
+            g_st.hw_write_bytes += hw_write_bytes;
+            g_st.hw_macs += hw_macs;
             g_st.backend_ns += dt;
             if (!g_st.backend_ns_min || dt < g_st.backend_ns_min)
                 g_st.backend_ns_min = dt;
@@ -386,12 +403,13 @@ void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n
         uint64_t fallback_elapsed = now_ns() - t0;
         g_st.fallback_calls++;
         g_st.fallback_ns += fallback_elapsed;
-        profile_row(s ? s->id : 0, rows, nb, "fallback", cache_hit, fallback_elapsed);
+        profile_row(s ? s->id : 0, rows, nb, "fallback", cache_hit, fallback_elapsed, 0, 0, 0, 0);
     } else if (g_verify) {
         verify(w, w_row_stride, rows, nb, x, y, ref_vec_dot);
     }
     if (rc == 0)
-        profile_row(s->id, rows, nb, "backend", cache_hit, backend_elapsed);
+        profile_row(s->id, rows, nb, "backend", cache_hit, backend_elapsed,
+                    pl_cycles, hw_read_bytes, hw_write_bytes, hw_macs);
 
     pthread_mutex_unlock(&g_lock);
 }
@@ -418,6 +436,7 @@ void soc_gemv_print_stats(void)
             "  logical payload   weights %.1f MB, activations %.1f MB, outputs %.1f MB\n"
             "  backend time      %.3f s, min %.3f ms, max %.3f ms, weight rate %.2f GB/s\n"
             "  work              %.3f GMAC, cache hits %llu, CPU fallback %.3f s\n"
+            "  hardware counters PL cycles %llu, reads %.1f MB, writes %.1f MB, %.3f GMAC\n"
             "  weight cache      %llu matrices, %.1f MB, repack %.3f s, stale repacks %llu\n",
             g_be ? g_be->name : "none",
             (unsigned long long)s.calls, (unsigned long long)s.rows, (unsigned long long)s.fallback_calls,
@@ -425,6 +444,8 @@ void soc_gemv_print_stats(void)
             bt, s.backend_ns_min / 1e6, s.backend_ns_max / 1e6,
             bt > 0 ? s.weight_bytes / bt / 1e9 : 0.0,
             s.macs / 1e9, (unsigned long long)s.cache_hits, s.fallback_ns * 1e-9,
+            (unsigned long long)s.pl_cycles, s.hw_read_bytes / 1e6,
+            s.hw_write_bytes / 1e6, s.hw_macs / 1e9,
             (unsigned long long)s.tensors, s.repack_bytes / 1e6, s.repack_ns * 1e-9,
             (unsigned long long)s.stale_repacks);
     if (s.verified)

@@ -26,15 +26,19 @@ static void test_aligned_free(void *memory) {
 }
 
 typedef struct {
-    uint32_t regs[32];
+    uint32_t regs[64];
     uint32_t job_results[4];
     unsigned writes, reads, polls, starts, device_sync, cpu_sync;
     int running, timeout, no_valid, delay_idle;
     uint32_t result;
+    uint32_t timer_control, timer_load, timer_count;
     uint64_t now;
 } fake;
 static uint32_t rd(void *p, uint32_t off) {
     fake *f = p; ++f->reads;
+    if (off == SOC_GEMV_REG_TIMER_TCSR) return f->timer_control;
+    if (off == SOC_GEMV_REG_TIMER_TLR) return f->timer_load;
+    if (off == SOC_GEMV_REG_TIMER_TCR) return f->timer_count;
     if (off == SOC_GEMV_REG_CTRL && f->running && !f->timeout) {
         ++f->polls;
         if (f->polls == 2) {
@@ -43,16 +47,40 @@ static uint32_t rd(void *p, uint32_t off) {
                                   f->job_results[f->starts - 1] : f->result;
             f->regs[SOC_GEMV_REG_STATUS/4] = job_result;
             f->regs[SOC_GEMV_REG_STATUS_VALID/4] = !f->no_valid;
+            uint64_t read_bytes = (uint64_t)f->regs[SOC_GEMV_REG_ROWS/4] * f->regs[SOC_GEMV_REG_NB/4] * 34 +
+                                  (uint64_t)f->regs[SOC_GEMV_REG_NB/4] * 34;
+            uint64_t write_bytes = (uint64_t)f->regs[SOC_GEMV_REG_ROWS/4] * 4;
+            uint64_t macs = (uint64_t)f->regs[SOC_GEMV_REG_ROWS/4] * f->regs[SOC_GEMV_REG_NB/4] * 32;
+            f->regs[SOC_GEMV_REG_READ_BYTES/4] = (uint32_t)read_bytes;
+            f->regs[SOC_GEMV_REG_READ_BYTES/4+1] = (uint32_t)(read_bytes >> 32);
+            f->regs[SOC_GEMV_REG_WRITE_BYTES/4] = (uint32_t)write_bytes;
+            f->regs[SOC_GEMV_REG_WRITE_BYTES/4+1] = (uint32_t)(write_bytes >> 32);
+            f->regs[SOC_GEMV_REG_MACS/4] = (uint32_t)macs;
+            f->regs[SOC_GEMV_REG_MACS/4+1] = (uint32_t)(macs >> 32);
+            f->regs[SOC_GEMV_REG_READ_BYTES_VALID/4] = !f->no_valid;
+            f->regs[SOC_GEMV_REG_WRITE_BYTES_VALID/4] = !f->no_valid;
+            f->regs[SOC_GEMV_REG_MACS_VALID/4] = !f->no_valid;
+            f->timer_count = 321;
         }
         if (f->delay_idle && f->polls == 4) f->regs[SOC_GEMV_REG_CTRL/4] |= SOC_GEMV_IDLE;
     }
     uint32_t value = f->regs[off/4];
     if (off == SOC_GEMV_REG_CTRL) f->regs[off/4] &= ~SOC_GEMV_DONE;
-    if (off == SOC_GEMV_REG_STATUS_VALID) f->regs[off/4] = 0;
+    if (off == SOC_GEMV_REG_STATUS_VALID || off == SOC_GEMV_REG_READ_BYTES_VALID ||
+        off == SOC_GEMV_REG_WRITE_BYTES_VALID || off == SOC_GEMV_REG_MACS_VALID) f->regs[off/4] = 0;
     return value;
 }
 static void wr(void *p, uint32_t off, uint32_t v) {
-    fake *f = p; ++f->writes; f->regs[off/4] = v;
+    fake *f = p; ++f->writes;
+    if (off == SOC_GEMV_REG_TIMER_TCSR) {
+        if (v & SOC_GEMV_TIMER_OVERFLOW) f->timer_control &= ~SOC_GEMV_TIMER_OVERFLOW;
+        f->timer_control = (f->timer_control & SOC_GEMV_TIMER_OVERFLOW) |
+                           (v & ~SOC_GEMV_TIMER_OVERFLOW);
+        if (v == SOC_GEMV_TIMER_LOAD) f->timer_count = f->timer_load;
+        return;
+    }
+    if (off == SOC_GEMV_REG_TIMER_TLR) { f->timer_load = v; return; }
+    f->regs[off/4] = v;
     if (off == SOC_GEMV_REG_CTRL && v == SOC_GEMV_START) {
         assert(f->device_sync == f->starts + 1);
         ++f->starts; f->running = 1; f->polls = 0; f->regs[off/4] = 0;
@@ -100,7 +128,10 @@ static void test_control(void) {
     fake f; soc_gemv_hal h = init(&f);
     soc_gemv_job j = {0x100001000ull, 0x200002000ull, 0x300003000ull, 0x400004000ull, 3, 2};
     uint32_t status;
-    assert(!soc_gemv_hal_run(&h, &j, 1000, &status) && status == 0);
+    soc_gemv_hw_counters counters;
+    assert(!soc_gemv_hal_run_profiled(&h, &j, 1000, &status, &counters) && status == 0);
+    assert(counters.pl_cycles == 321 && counters.read_bytes == 272 &&
+           counters.write_bytes == 12 && counters.macs == 192);
     assert(f.starts == 1 && f.polls >= 2 && f.cpu_sync == 1);
     assert(f.regs[SOC_GEMV_REG_W/4] == 0x1000 && f.regs[SOC_GEMV_REG_W/4+1] == 1);
     assert(f.regs[SOC_GEMV_REG_S/4+1] == 2 && f.regs[SOC_GEMV_REG_X/4+1] == 3);

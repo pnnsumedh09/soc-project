@@ -12,6 +12,8 @@ MOCK = r'''
 set script [lindex $argv 0]
 set case [lindex $argv 1]
 set env(SOC_GEMV_BUILD_STAGE) check
+set env(SOC_GEMV_HW_ROW_INTERLEAVE) 8
+set env(SOC_GEMV_HW_DOUBLE_BUFFER) 1
 set created 0
 set project_args {}
 set connected {}
@@ -132,8 +134,13 @@ if {$case eq "board_wrong"} {
 }
 if {$case eq "no_ps"} { set env(SOC_GEMV_BUILD_STAGE) bd; unset env(SOC_GEMV_PS_CONFIG) }
 if {$case eq "bad_base"} { set env(SOC_GEMV_CONTROL_BASE) 0xa0000001 }
-if {$case eq "r8"} { set env(SOC_GEMV_HW_ROW_INTERLEAVE) 8 }
-set bad [expr {$case in {no_ps bad_base r8 bad_abi bad_header bad_part bad_clock board_wrong}}]
+if {$case eq "bad_interleave"} { set env(SOC_GEMV_HW_ROW_INTERLEAVE) 3 }
+if {$case eq "bad_double_buffer"} { set env(SOC_GEMV_HW_DOUBLE_BUFFER) 2 }
+if {$case eq "export"} {
+    set env(SOC_GEMV_HW_ROW_INTERLEAVE) 1
+    set env(SOC_GEMV_HW_DOUBLE_BUFFER) 0
+}
+set bad [expr {$case in {no_ps bad_base bad_interleave bad_double_buffer bad_abi bad_header bad_part bad_clock board_wrong}}]
 set failed [catch {source $script} message]
 if {[string match "reset_*" $case]} {
     if {!$failed || $created != 1 || $saved != 0 ||
@@ -150,8 +157,8 @@ if {[string match "reset_*" $case]} {
     if {$case eq "export" && !$exported} { error "Did not package existing RTL" }
     if {$case in {bd board_v2}} {
         if {!$validated || $saved != 1} { error "Reset checks must precede save" }
-        if {$created != 1 || [llength $connected] != 7 ||
-            $offsets ne {0xA0000000 0x00000000 0x00000000 0x00000000 0x00000000}} {
+        if {$created != 1 || [llength $connected] != 8 ||
+            $offsets ne {0xA0000000 0xA0001000 0x00000000 0x00000000 0x00000000 0x00000000}} {
             error "Unexpected AXI topology/address map: $connected / $offsets"
         }
         if {[lsearch -exact $connected_nets [list gemv_0/interrupt zynq_ultra_ps_e_0/pl_ps_irq0]] < 0} {
@@ -169,6 +176,9 @@ if {[string match "reset_*" $case]} {
             if {[lsearch -exact $connected [list gemv_0/m_axi_$port memory_xbar/$slot]] < 0} {
                 error "Missing memory interface $port"
             }
+        }
+        if {[lsearch -exact $connected [list control_xbar/M01_AXI profile_timer/S_AXI]] < 0} {
+            error "Missing AXI profiling timer"
         }
         set found 0
         foreach p $props {
@@ -193,7 +203,7 @@ def main():
     reset_only = sys.argv[1:] == ["--reset-only"]
     if sys.argv[1:] and not reset_only:
         raise SystemExit("Usage: test_scripts.py [--reset-only]")
-    with tempfile.TemporaryDirectory(prefix="soc_gemv_p4_scripts_") as temp:
+    with tempfile.TemporaryDirectory(prefix="soc_gemv_p4_scripts_", dir=HERE) as temp:
         root = Path(temp)
         hw = root / "soc/hw"
         vivado = hw / "vivado/gemv"
@@ -213,12 +223,13 @@ def main():
         else:
             for name in ("check_export.tcl", "export_existing.tcl"):
                 shutil.copy(HLS / name, hls)
-        solution = hw / "hls_work/gemv/f150_b64_o8/solution"
+        solution = hw / "hls_work/gemv/f150_b64_o8_r8_db/solution"
         report = solution / "syn/report"
         report.mkdir(parents=True)
         (solution / "syn/verilog").mkdir()
         (solution / "syn/verilog/soc_gemv_hw.v").write_text("// mock RTL\n")
-        (report / "soc_gemv_hw_csynth.rpt").write_text("soc_gemv_hw_Pipeline_read_words\n")
+        (report / "soc_gemv_hw_csynth.rpt").write_text(
+            "soc_gemv_hw_Pipeline_interleave_words\ndouble_buffered_tiles\n")
         xml = "<root><Part>xczu3eg-sbva484-1-e</Part><TargetClockPeriod>6.67</TargetClockPeriod></root>"
         xmlpath = report / "soc_gemv_hw_csynth.xml"
         xmlpath.write_text(xml)
@@ -231,11 +242,18 @@ def main():
         (ip / "component.xml").write_text("<mock />\n")
         registers = dict(AP_CTRL=0, GIE=4, W_QUANTS_DATA=0x10, W_SCALES_DATA=0x20,
                          X_NATIVE_DATA=0x30, Y_DATA=0x40, ROWS_DATA=0x50,
-                         NB_DATA=0x58, STATUS_DATA=0x60, STATUS_CTRL=0x64)
+                         NB_DATA=0x58, STATUS_DATA=0x60, STATUS_CTRL=0x64,
+                         READ_BYTES_DATA=0x70, READ_BYTES_CTRL=0x78,
+                         WRITE_BYTES_DATA=0x80, WRITE_BYTES_CTRL=0x88,
+                         MACS_DATA=0x90, MACS_CTRL=0x98)
         abi = "".join(f"#define XSOC_GEMV_HW_CONTROL_ADDR_{name} {value:#x}\n"
                       for name, value in registers.items())
         header.write_text(abi)
         assert len(list(header.parent.glob("*_hw.h"))) == 2
+        sequential = hw / "hls_work/gemv/f150_b64_o8/solution"
+        shutil.copytree(solution, sequential)
+        (sequential / "syn/report/soc_gemv_hw_csynth.rpt").write_text(
+            "soc_gemv_hw_Pipeline_read_words\n")
         ps = root / "ps.tcl"
         ps.write_text("# mock verified course PS settings\n")
         mock = root / "mock.tcl"
@@ -247,7 +265,7 @@ def main():
                        "reset_bad_inverter", "reset_bad_net", "reset_bad_output",
                        "reset_multiple_drivers")
         cases = (("bd", "board_v2") + reset_cases if reset_only else
-                 ("check", "bd", "board_v2", "board_wrong", "no_ps", "bad_base", "r8", "bad_abi", "bad_header", "bad_part", "bad_clock", "export") + reset_cases)
+                 ("check", "bd", "board_v2", "board_wrong", "no_ps", "bad_base", "bad_interleave", "bad_double_buffer", "bad_abi", "bad_header", "bad_part", "bad_clock", "export") + reset_cases)
         for case in cases:
             header.write_text(abi.replace("STATUS_DATA 0x60", "STATUS_DATA 0x68") if case=="bad_abi" else abi)
             if case == "bad_header": header.unlink()

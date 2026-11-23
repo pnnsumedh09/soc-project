@@ -20,7 +20,7 @@ llama.cpp graph ──► ggml_compute_forward_mul_mat (ggml-cpu.c)
                     backend->run(repacked W, x) ──► y      ("emul" now, FPGA in P4.2)
 ```
 
-Backends implement five functions (`soc_gemv_backend.h`): `init`, `shutdown`, `alloc` (4 KB-aligned memory, CPU pointer + device address), `free`, `run`. The `emul` backend uses heap memory and the golden arithmetic `soc_q8r_gemv_ref`. The FPGA backend (HAL v2) will provide contiguous DMA memory and drive the engine registers. Nothing else changes.
+Backends implement initialization, allocation, execution and an optional last-hardware-counter query (`soc_gemv_backend.h`). The `emul` backend uses heap memory and the golden arithmetic `soc_q8r_gemv_ref`. The FPGA backend provides contiguous DMA memory, drives the engine registers and returns PL cycles plus HLS logical counters.
 
 ## The hook (upstream edits, kept minimal)
 
@@ -49,12 +49,12 @@ Optional: `-DGGML_SOC_DIR=/path/to/soc` if the `soc/` folder is not at the repo 
 | `SOC_GEMV_BACKEND=emul` | backend (only `emul` today) |
 | `SOC_GEMV_VERIFY=1` | recompute every offloaded GEMV with llama.cpp's `vec_dot` and report differences (slow) |
 | `SOC_GEMV_STATS=1` | print counts, MB streamed, cache size, repack time at exit |
-| `SOC_GEMV_PROFILE=path.csv` | write one row per GEMV with tensor ID, shape, path, logical bytes, MACs, cache hit and measured host elapsed time |
+| `SOC_GEMV_PROFILE=path.csv` | write one row per GEMV with shape, logical work, host time and available FPGA PL/HLS counters |
 | `SOC_GEMV_STRICT=1` | abort instead of falling back on backend errors |
 
 A one-line banner `soc_gemv: enabled (...)` is printed to stderr at first use.
 
-`SOC_GEMV_STATS` now separates weight, activation and output payloads and reports logical MACs, cache hits, CPU fallback time and the minimum/maximum backend call time. These are software measurements around `backend->run()`. They are not accelerator clock cycles or observed AXI beats.
+`SOC_GEMV_STATS` separates weight, activation and output payloads and reports logical MACs, cache hits, CPU fallback time and the minimum/maximum backend call time. On FPGA it also reports the PL timer window and HLS logical read/write/MAC counters. `pl_cycles` includes fixed AXI-Lite submission and completion-observation overhead. Logical bytes are not observed AXI beats.
 
 Analyze an optional trace with:
 

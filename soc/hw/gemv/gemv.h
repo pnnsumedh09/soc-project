@@ -10,12 +10,19 @@ typedef unsigned __int128 soc_gemv_word;
 typedef ap_uint<128> soc_gemv_word;
 #endif
 
-// 1 retains the verified sequential baseline; 8 enables row interleaving.
+// 1 selects the sequential reference; 8 selects the Combination A kernel.
 #ifndef SOC_GEMV_HW_ROW_INTERLEAVE
-#define SOC_GEMV_HW_ROW_INTERLEAVE 1
+#define SOC_GEMV_HW_ROW_INTERLEAVE 8
+#endif
+#ifndef SOC_GEMV_HW_DOUBLE_BUFFER
+#define SOC_GEMV_HW_DOUBLE_BUFFER 1
 #endif
 static_assert(SOC_GEMV_HW_ROW_INTERLEAVE == 1 || SOC_GEMV_HW_ROW_INTERLEAVE == 8,
               "Select the baseline (1) or eight-row interleaving (8)");
+static_assert(SOC_GEMV_HW_DOUBLE_BUFFER == 0 || SOC_GEMV_HW_DOUBLE_BUFFER == 1,
+              "Double buffering must be disabled (0) or enabled (1)");
+static_assert(SOC_GEMV_HW_ROW_INTERLEAVE == 8 || SOC_GEMV_HW_DOUBLE_BUFFER == 0,
+              "Double buffering is supported only by row interleave 8");
 
 enum {
     SOC_GEMV_HW_MAX_NB = 152,
@@ -28,6 +35,8 @@ enum {
 
 void soc_gemv_hw(const soc_gemv_word * w_quants, const uint16_t * w_scales,
                  const uint8_t * x_native, float * y,
-                 uint32_t rows, uint32_t nb, uint32_t & status);
+                 uint32_t rows, uint32_t nb, uint32_t & status,
+                 uint64_t & read_bytes, uint64_t & write_bytes,
+                 uint64_t & macs);
 
 #endif

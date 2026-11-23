@@ -50,9 +50,115 @@ static int32_t dot_beat(soc_gemv_word w, soc_gemv_word x) {
     return sums2[0] + sums2[1];
 }
 
+#if SOC_GEMV_HW_ROW_INTERLEAVE == 8
+// Sixteen blocks make the common Qwen 896-element input (28 blocks) use two
+// tiles, so ping-pong buffering can overlap work for QKV and gate/up as well as
+// wider down projections. The two banks together retain the old 32-block
+// single-tile storage capacity.
+enum { R8_ROWS = 8, R8_BLOCKS = 16, R8_BEATS = 2 * R8_BLOCKS };
+
+static uint32_t load_r8_tile(const soc_gemv_word * w_quants, const uint16_t * w_scales,
+                             uint32_t nb, uint32_t row_base, uint32_t active_rows,
+                             uint32_t block_base, uint32_t blocks,
+                             soc_gemv_word quant_tile[R8_ROWS][R8_BEATS],
+                             float scale_tile[R8_ROWS][R8_BLOCKS]) {
+    uint16_t scale_bits[R8_BLOCKS];
+load_r8_rows:
+    for (uint32_t lane = 0; lane < active_rows; ++lane) {
+        uint32_t base = (row_base + lane) * nb + block_base;
+load_r8_scales:
+        for (uint32_t b = 0; b < blocks; ++b) {
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+            scale_bits[b] = w_scales[base + b];
+        }
+convert_r8_scales:
+        for (uint32_t b = 0; b < blocks; ++b) {
+            if (!finite_half(scale_bits[b])) return SOC_GEMV_HW_BAD_W_SCALE;
+            scale_tile[lane][b] = dot_half_to_float(scale_bits[b]);
+        }
+load_r8_words:
+        for (uint32_t beat = 0; beat < 2 * blocks; ++beat) {
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+            quant_tile[lane][beat] = w_quants[2 * base + beat];
+        }
+    }
+    return SOC_GEMV_HW_OK;
+}
+
+static void compute_r8_tile(const soc_gemv_word quant_tile[R8_ROWS][R8_BEATS],
+                            const float scale_tile[R8_ROWS][R8_BLOCKS],
+                            const soc_gemv_word x_words[2 * SOC_GEMV_HW_MAX_NB],
+                            const float x_scales[SOC_GEMV_HW_MAX_NB],
+                            uint32_t active_rows, uint32_t block_base, uint32_t blocks,
+                            float accum[R8_ROWS], int32_t first_half[R8_ROWS]) {
+interleave_words:
+    for (uint32_t slot = 0; slot < 2 * blocks * R8_ROWS; ++slot) {
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+        uint32_t lane = slot % R8_ROWS;
+        uint32_t beat = slot / R8_ROWS;
+        float next = accum[0];
+        if (lane < active_rows) {
+            int32_t part = dot_beat(quant_tile[lane][beat], x_words[2 * block_base + beat]);
+            if ((beat & 1) == 0) {
+                first_half[lane] = part;
+            } else {
+                int32_t sumi = first_half[lane] + part;
+                uint32_t b = beat / 2;
+                float scale_product = scale_tile[lane][b] * x_scales[block_base + b];
+                float term = (float) sumi * scale_product;
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS BIND_OP variable=scale_product op=fmul
+#pragma HLS BIND_OP variable=term op=fmul
+#pragma HLS BIND_OP variable=next op=fadd
+#endif
+                next = next + term;
+            }
+        }
+        for (uint32_t i = 0; i < R8_ROWS - 1; ++i) {
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS UNROLL
+#endif
+            accum[i] = accum[i + 1];
+        }
+        accum[R8_ROWS - 1] = next;
+    }
+}
+
+#if SOC_GEMV_HW_DOUBLE_BUFFER
+static void load_compute_r8(const soc_gemv_word * w_quants, const uint16_t * w_scales,
+                            uint32_t nb, uint32_t row_base, uint32_t active_rows,
+                            uint32_t next_base, uint32_t next_blocks,
+                            soc_gemv_word next_quants[R8_ROWS][R8_BEATS],
+                            float next_scales[R8_ROWS][R8_BLOCKS],
+                            const soc_gemv_word current_quants[R8_ROWS][R8_BEATS],
+                            const float current_scales[R8_ROWS][R8_BLOCKS],
+                            const soc_gemv_word x_words[2 * SOC_GEMV_HW_MAX_NB],
+                            const float x_scales[SOC_GEMV_HW_MAX_NB],
+                            uint32_t block_base, uint32_t blocks,
+                            float accum[R8_ROWS], int32_t first_half[R8_ROWS],
+                            uint32_t & next_status) {
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS DATAFLOW
+#endif
+    next_status = load_r8_tile(w_quants, w_scales, nb, row_base, active_rows,
+                               next_base, next_blocks, next_quants, next_scales);
+    compute_r8_tile(current_quants, current_scales, x_words, x_scales,
+                    active_rows, block_base, blocks, accum, first_half);
+}
+#endif
+#endif
+
 void soc_gemv_hw(const soc_gemv_word * w_quants, const uint16_t * w_scales,
                  const uint8_t * x_native, float * y,
-                 uint32_t rows, uint32_t nb, uint32_t & status) {
+                 uint32_t rows, uint32_t nb, uint32_t & status,
+                 uint64_t & read_bytes, uint64_t & write_bytes,
+                 uint64_t & macs) {
 #ifndef SOC_GEMV_HW_HOST
 #pragma HLS INTERFACE s_axilite port=return bundle=control
 #pragma HLS INTERFACE s_axilite port=w_quants bundle=control offset=0x10
@@ -62,8 +168,14 @@ void soc_gemv_hw(const soc_gemv_word * w_quants, const uint16_t * w_scales,
 #pragma HLS INTERFACE s_axilite port=rows bundle=control offset=0x50
 #pragma HLS INTERFACE s_axilite port=nb bundle=control offset=0x58
 #pragma HLS INTERFACE s_axilite port=status bundle=control offset=0x60
+#pragma HLS INTERFACE s_axilite port=read_bytes bundle=control offset=0x70
+#pragma HLS INTERFACE s_axilite port=write_bytes bundle=control offset=0x80
+#pragma HLS INTERFACE s_axilite port=macs bundle=control offset=0x90
 #endif
     status = SOC_GEMV_HW_OK;
+    read_bytes = 0;
+    write_bytes = 0;
+    macs = 0;
     if (rows > SOC_GEMV_HW_MAX_ROWS || nb > SOC_GEMV_HW_MAX_NB || (rows != 0 && nb == 0)) {
         status = SOC_GEMV_HW_BAD_SHAPE;
         return;
@@ -147,96 +259,68 @@ read_words:
         y[row] = sumf;
     }
 #else
-    // Eight independent rows share one 16-product datapath. Buffer contiguous
-    // row segments first, then consume them in round-robin order locally.
-    const uint32_t ROWS = SOC_GEMV_HW_ROW_INTERLEAVE;
-    const uint32_t BLOCKS = 32; // 64 quant beats per row, matching the default burst.
-    soc_gemv_word quant_tile[ROWS][2 * BLOCKS];
-    uint16_t scale_bits[ROWS][BLOCKS];
-    float scale_tile[ROWS][BLOCKS];
-    float accum[ROWS];
-    int32_t first_half[ROWS];
+    soc_gemv_word quant_tiles[2][R8_ROWS][R8_BEATS];
+    float scale_tiles[2][R8_ROWS][R8_BLOCKS];
+    float accum[R8_ROWS];
+    int32_t first_half[R8_ROWS];
 #ifndef SOC_GEMV_HW_HOST
-#pragma HLS BIND_STORAGE variable=quant_tile type=ram_1p impl=bram
+#pragma HLS ARRAY_PARTITION variable=quant_tiles complete dim=1
+#pragma HLS ARRAY_PARTITION variable=scale_tiles complete dim=1
+#pragma HLS BIND_STORAGE variable=quant_tiles type=ram_1p impl=bram
 #pragma HLS ARRAY_PARTITION variable=accum complete
 #pragma HLS ARRAY_PARTITION variable=first_half complete
 #endif
 row_groups:
-    for (uint32_t row_base = 0; row_base < rows; row_base += ROWS) {
+    for (uint32_t row_base = 0; row_base < rows; row_base += R8_ROWS) {
         uint32_t active_rows = rows - row_base;
-        if (active_rows > ROWS) active_rows = ROWS;
-        for (uint32_t lane = 0; lane < ROWS; ++lane) {
+        if (active_rows > R8_ROWS) active_rows = R8_ROWS;
+        for (uint32_t lane = 0; lane < R8_ROWS; ++lane) {
             accum[lane] = 0.0f;
             first_half[lane] = 0;
         }
-block_tiles:
-        for (uint32_t block_base = 0; block_base < nb; block_base += BLOCKS) {
+        uint32_t first_blocks = nb > (uint32_t) R8_BLOCKS ? (uint32_t) R8_BLOCKS : nb;
+        status = load_r8_tile(w_quants, w_scales, nb, row_base, active_rows, 0,
+                              first_blocks, quant_tiles[0], scale_tiles[0]);
+        if (status != SOC_GEMV_HW_OK) return;
+double_buffered_tiles:
+        for (uint32_t block_base = 0, tile = 0; block_base < nb;
+             block_base += R8_BLOCKS, ++tile) {
             uint32_t blocks = nb - block_base;
-            if (blocks > BLOCKS) blocks = BLOCKS;
-load_tile_rows:
-            for (uint32_t lane = 0; lane < active_rows; ++lane) {
-                uint32_t base = (row_base + lane) * nb + block_base;
-load_tile_scales:
-                for (uint32_t b = 0; b < blocks; ++b) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS PIPELINE II=1
-#endif
-                    scale_bits[lane][b] = w_scales[base + b];
+            if (blocks > R8_BLOCKS) blocks = R8_BLOCKS;
+            uint32_t current_bank = tile & 1;
+            uint32_t next_base = block_base + R8_BLOCKS;
+            if (next_base < nb) {
+                uint32_t next_blocks = nb - next_base;
+                if (next_blocks > R8_BLOCKS) next_blocks = R8_BLOCKS;
+                uint32_t next_status = SOC_GEMV_HW_OK;
+#if SOC_GEMV_HW_DOUBLE_BUFFER
+                if (current_bank == 0) {
+                    load_compute_r8(w_quants, w_scales, nb, row_base, active_rows,
+                                    next_base, next_blocks, quant_tiles[1], scale_tiles[1],
+                                    quant_tiles[0], scale_tiles[0], x_words, x_scales,
+                                    block_base, blocks, accum, first_half, next_status);
+                } else {
+                    load_compute_r8(w_quants, w_scales, nb, row_base, active_rows,
+                                    next_base, next_blocks, quant_tiles[0], scale_tiles[0],
+                                    quant_tiles[1], scale_tiles[1], x_words, x_scales,
+                                    block_base, blocks, accum, first_half, next_status);
                 }
-convert_tile_scales:
-                for (uint32_t b = 0; b < blocks; ++b) {
-                    uint16_t bits = scale_bits[lane][b];
-                    if (!finite_half(bits)) {
-                        status = SOC_GEMV_HW_BAD_W_SCALE;
-                        return;
-                    }
-                    scale_tile[lane][b] = dot_half_to_float(bits);
-                }
-load_tile_words:
-                for (uint32_t beat = 0; beat < 2 * blocks; ++beat) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS PIPELINE II=1
+#else
+                compute_r8_tile(quant_tiles[current_bank], scale_tiles[current_bank],
+                                x_words, x_scales, active_rows, block_base, blocks,
+                                accum, first_half);
+                next_status = load_r8_tile(w_quants, w_scales, nb, row_base, active_rows,
+                                           next_base, next_blocks,
+                                           quant_tiles[current_bank ^ 1], scale_tiles[current_bank ^ 1]);
 #endif
-                    quant_tile[lane][beat] = w_quants[2 * base + beat];
+                if (next_status != SOC_GEMV_HW_OK) {
+                    status = next_status;
+                    return;
                 }
-            }
-interleave_words:
-            for (uint32_t slot = 0; slot < 2 * blocks * ROWS; ++slot) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS PIPELINE II=1
-#endif
-                uint32_t lane = slot % ROWS;
-                uint32_t beat = slot / ROWS;
-                // Rotate on every slot, including inactive lanes in a tail group.
-                // After eight rotations each row returns to its original slot.
-                // The FP feedback travels through eight distinct registers; no
-                // false-dependence directive hides the real accumulator feedback.
-                float next = accum[0];
-                if (lane < active_rows) {
-                    int32_t part = dot_beat(quant_tile[lane][beat],
-                                           x_words[2 * block_base + beat]);
-                    if ((beat & 1) == 0) {
-                        first_half[lane] = part;
-                    } else {
-                        int32_t sumi = first_half[lane] + part;
-                        uint32_t b = beat / 2;
-                        float scale_product = scale_tile[lane][b] * x_scales[block_base + b];
-                        float term = (float) sumi * scale_product;
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS BIND_OP variable=scale_product op=fmul
-#pragma HLS BIND_OP variable=term op=fmul
-#pragma HLS BIND_OP variable=next op=fadd
-#endif
-                        next = next + term;
-                    }
-                }
-                for (uint32_t i = 0; i < ROWS - 1; ++i) {
-#ifndef SOC_GEMV_HW_HOST
-#pragma HLS UNROLL
-#endif
-                    accum[i] = accum[i + 1];
-                }
-                accum[ROWS - 1] = next;
+            } else {
+                compute_r8_tile(quant_tiles[current_bank], scale_tiles[current_bank],
+                                x_words, x_scales, active_rows, block_base, blocks,
+                                accum, first_half);
             }
         }
 write_rows:
@@ -246,4 +330,7 @@ write_rows:
     }
 #endif
 
+    read_bytes = (uint64_t) rows * nb * 34 + (uint64_t) nb * 34;
+    write_bytes = (uint64_t) rows * sizeof(float);
+    macs = (uint64_t) rows * nb * 32;
 }

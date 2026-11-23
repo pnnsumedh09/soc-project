@@ -11,8 +11,11 @@ set ps_config [setting SOC_GEMV_PS_CONFIG ""]
 set jobs [setting SOC_GEMV_JOBS 8]
 set stage [setting SOC_GEMV_BUILD_STAGE check]
 set base [setting SOC_GEMV_CONTROL_BASE 0xA0000000]
-if {[setting SOC_GEMV_HW_ROW_INTERLEAVE 1] ne "1"} {
-    error "P4 integration currently selects only the sequential kernel"
+set interleave [setting SOC_GEMV_HW_ROW_INTERLEAVE 8]
+set double_buffer [setting SOC_GEMV_HW_DOUBLE_BUFFER 1]
+if {$interleave ni {1 8}} { error "SOC_GEMV_HW_ROW_INTERLEAVE must be 1 or 8" }
+if {$double_buffer ni {0 1} || ($interleave == 1 && $double_buffer != 0)} {
+    error "SOC_GEMV_HW_DOUBLE_BUFFER must be 0 or 1 and is supported only with row interleave 8"
 }
 if {![string is wideinteger -strict $base] || $base < 0xA0000000 || $base > 0xAFFF0000 || ($base % 65536) != 0} {
     error "Control base must be 64KiB-aligned in 0xA0000000..0xAFFF0000"
@@ -28,6 +31,8 @@ if {$stage ni {check bd bitstream} || $part ni {xczu3eg-sbva484-1-e xczu3eg-sbva
     error "Use SOC_GEMV_BUILD_STAGE=check/bd/bitstream and a supported SOC_GEMV_HW_PART (-e or -i)"
 }
 set tag f${mhz}_b${burst}_o${outstanding}
+if {$interleave != 1} { append tag _r${interleave} }
+if {$double_buffer} { append tag _db }
 set ip_repo [file normalize "$here/../../hls_work/gemv/$tag/solution/impl/ip"]
 if {$board_repo ne ""} {
     if {![file isdirectory $board_repo]} { error "Missing board repository: $board_repo" }
@@ -62,9 +67,15 @@ if {![file isfile $rpt]} { error "Missing text synthesis report: $rpt" }
 set stream [open $rpt r]
 set schedule [read $stream]
 close $stream
-if {[string first "interleave_words" $schedule] >= 0 ||
-    [string first "read_words" $schedule] < 0} {
-    error "The selected export must be the sequential GEMV kernel"
+if {$interleave == 8 && [string first "interleave_words" $schedule] < 0} {
+    error "The selected export is not the requested row-interleave-8 kernel"
+}
+if {$double_buffer && [string first "double_buffered_tiles" $schedule] < 0} {
+    error "The selected export does not contain the requested double-buffered tile schedule"
+}
+if {$interleave == 1 &&
+    ([string first "interleave_words" $schedule] >= 0 || [string first "read_words" $schedule] < 0)} {
+    error "The selected export is not the requested sequential kernel"
 }
 if {$hls_part ne $part} {
     error "HLS target $hls_part differs from requested $part; resolve the actual board/course target before rebuilding"
@@ -134,10 +145,12 @@ set_property -dict [list \
 
 create_bd_cell -type ip -vlnv soc.org:hls:soc_gemv_hw:1.0 gemv_0
 create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 control_xbar
-set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {1}] [get_bd_cells control_xbar]
+set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {2}] [get_bd_cells control_xbar]
 create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 memory_xbar
 set_property -dict [list CONFIG.NUM_SI {4} CONFIG.NUM_MI {1}] [get_bd_cells memory_xbar]
 create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 reset_0
+create_bd_cell -type ip -vlnv xilinx.com:ip:axi_timer:2.0 profile_timer
+set_property -dict [list CONFIG.enable_timer2 {0} CONFIG.count_width {32}] [get_bd_cells profile_timer]
 # Do not choose a tie-off from the initial IP defaults: validation can infer
 # different reset polarities. Fix the intended configuration and verify it below.
 set_property -dict [list CONFIG.C_EXT_RESET_HIGH {1} CONFIG.C_AUX_RESET_HIGH {0}] [get_bd_cells reset_0]
@@ -150,6 +163,7 @@ set_property CONFIG.CONST_VAL {0} [get_bd_cells zero_0]
 
 connect_bd_intf_net [get_bd_intf_pins $ps/M_AXI_HPM0_FPD] [get_bd_intf_pins control_xbar/S00_AXI]
 connect_bd_intf_net [get_bd_intf_pins control_xbar/M00_AXI] [get_bd_intf_pins gemv_0/s_axi_control]
+connect_bd_intf_net [get_bd_intf_pins control_xbar/M01_AXI] [get_bd_intf_pins profile_timer/S_AXI]
 foreach {port slot} {weights S00_AXI scales S01_AXI activation S02_AXI output_r S03_AXI} {
     set pin [get_bd_intf_pins -quiet gemv_0/m_axi_$port]
     if {[llength $pin] != 1} { error "Missing expected HLS interface m_axi_$port; inspect exported component.xml" }
@@ -159,7 +173,7 @@ connect_bd_intf_net [get_bd_intf_pins memory_xbar/M00_AXI] [get_bd_intf_pins $ps
 foreach pin {maxihpm0_fpd_aclk saxihp0_fpd_aclk} {
     connect_bd_net [get_bd_pins $ps/pl_clk0] [get_bd_pins $ps/$pin]
 }
-foreach pin {gemv_0/ap_clk control_xbar/aclk memory_xbar/aclk reset_0/slowest_sync_clk} {
+foreach pin {gemv_0/ap_clk profile_timer/s_axi_aclk control_xbar/aclk memory_xbar/aclk reset_0/slowest_sync_clk} {
     connect_bd_net [get_bd_pins $ps/pl_clk0] [get_bd_pins $pin]
 }
 connect_bd_net [get_bd_pins $ps/pl_resetn0] [get_bd_pins reset_inverter/Op1]
@@ -173,13 +187,17 @@ connect_bd_net [get_bd_pins locked_0/dout] [get_bd_pins reset_0/dcm_locked]
 # Active-low auxiliary reset is inactive at one; debug reset is inactive at zero.
 connect_bd_net [get_bd_pins locked_0/dout] [get_bd_pins reset_0/aux_reset_in]
 connect_bd_net [get_bd_pins zero_0/dout] [get_bd_pins reset_0/mb_debug_sys_rst]
-foreach pin {gemv_0/ap_rst_n control_xbar/aresetn memory_xbar/aresetn} {
+foreach pin {gemv_0/ap_rst_n profile_timer/s_axi_aresetn control_xbar/aresetn memory_xbar/aresetn} {
     connect_bd_net [get_bd_pins reset_0/peripheral_aresetn] [get_bd_pins $pin]
 }
 connect_bd_net [get_bd_pins gemv_0/interrupt] [get_bd_pins $ps/pl_ps_irq0]
-assign_bd_address -offset $base -range 64K \
+assign_bd_address -offset $base -range 4K \
     -target_address_space [get_bd_addr_spaces $ps/Data] \
     [get_bd_addr_segs gemv_0/s_axi_control/Reg] -force
+set timer_base [format 0x%08X [expr {$base + 0x1000}]]
+assign_bd_address -offset $timer_base -range 4K \
+    -target_address_space [get_bd_addr_spaces $ps/Data] \
+    [get_bd_addr_segs profile_timer/S_AXI/Reg] -force
 foreach port {weights scales activation output_r} {
     assign_bd_address -offset 0x00000000 -range 2G \
         -target_address_space [get_bd_addr_spaces gemv_0/Data_m_axi_$port] \
@@ -226,7 +244,7 @@ require_reset_net $ps/pl_resetn0 {reset_inverter/Op1}
 require_reset_net reset_inverter/Res {reset_0/ext_reset_in}
 require_reset_net locked_0/dout {reset_0/aux_reset_in reset_0/dcm_locked}
 require_reset_net zero_0/dout {reset_0/mb_debug_sys_rst}
-require_reset_net reset_0/peripheral_aresetn {gemv_0/ap_rst_n control_xbar/aresetn memory_xbar/aresetn}
+require_reset_net reset_0/peripheral_aresetn {gemv_0/ap_rst_n profile_timer/s_axi_aresetn control_xbar/aresetn memory_xbar/aresetn}
 puts "Post-validation reset checks PASS: external active-high via inverter; auxiliary active-low tied high; reset outputs connected"
 save_bd_design
 write_bd_tcl -force "$work/soc_gemv_bd.tcl"

@@ -31,6 +31,7 @@ static struct {
     soc_gemv_hal hal;
     void *x, *y, *xh, *yh;
     uint64_t xd, yd, timeout;
+    soc_gemv_hw_counters last;
 } g = {.uio_fd = -1, .dma_fd = -1, .lock_fd = -1};
 
 static int fail(int e) { errno = e; return -1; }
@@ -184,8 +185,9 @@ static int fpga_run(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x,
     memcpy(g.x, x, m->nb * 34);
     soc_gemv_job j = {q, s, g.xd, g.yd, m->rows, m->nb};
     uint32_t status;
+    g.last = (soc_gemv_hw_counters){0};
     if (marker('1')) { g.hal.poisoned = 1; return -1; }
-    int rc = soc_gemv_hal_run(&g.hal, &j, g.timeout, &status);
+    int rc = soc_gemv_hal_run_profiled(&g.hal, &j, g.timeout, &status, &g.last);
     int saved = errno;
     if (rc && saved == EBUSY) g.hal.poisoned = 1;
     if (!g.hal.poisoned) {
@@ -198,6 +200,21 @@ static int fpga_run(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x,
     memcpy(y, g.y, m->rows * sizeof(float));
     return 0;
 }
+static int fpga_last_counters(uint64_t *pl_cycles, uint64_t *read_bytes,
+                              uint64_t *write_bytes, uint64_t *macs) {
+    if (!g.ready || !pl_cycles || !read_bytes || !write_bytes || !macs) return fail(EINVAL);
+    *pl_cycles = g.last.pl_cycles;
+    *read_bytes = g.last.read_bytes;
+    *write_bytes = g.last.write_bytes;
+    *macs = g.last.macs;
+    return 0;
+}
 const soc_gemv_backend soc_gemv_backend_fpga = {
-    "fpga", fpga_init, fpga_shutdown, fpga_alloc, fpga_free, fpga_run
+    .name = "fpga",
+    .init = fpga_init,
+    .shutdown = fpga_shutdown,
+    .alloc = fpga_alloc,
+    .free = fpga_free,
+    .run = fpga_run,
+    .last_counters = fpga_last_counters,
 };

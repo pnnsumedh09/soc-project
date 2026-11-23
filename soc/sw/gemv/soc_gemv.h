@@ -61,6 +61,10 @@ typedef struct soc_gemv_stats {
     uint64_t activation_bytes; /* native Q8_0 activation bytes read       */
     uint64_t output_bytes;     /* FP32 output bytes written               */
     uint64_t macs;             /* logical multiply-accumulate operations  */
+    uint64_t pl_cycles;        /* FPGA timer submission/completion cycles */
+    uint64_t hw_read_bytes;    /* successful HLS logical read payload     */
+    uint64_t hw_write_bytes;   /* successful HLS logical write payload    */
+    uint64_t hw_macs;          /* successful HLS logical MAC count        */
     uint64_t backend_ns;       /* time inside backend run()               */
     uint64_t backend_ns_min;
     uint64_t backend_ns_max;

@@ -13,6 +13,8 @@ This document compares the current SoC project with Combination A:
 
 It also covers the proposed QKV bias path, fused FFN path and command queue. Statements below distinguish source implementation, simulation evidence, integration evidence and real-board evidence.
 
+The ordered LRC, Vitis, Vivado and Ultra96 execution gates are in `soc/docs/COMBINATION_A_VALIDATION_WORKFLOW.md`.
+
 ## 1. Executive summary
 
 The current branch implements and verifies a single-job Q8_0 GEMV engine. The CPU quantizes one activation vector, the accelerator loads that vector into BRAM once for the job, reads repacked Q8_0 weights directly from DDR through AXI masters, computes one output vector and writes it to DDR. The software submits one job through AXI-Lite registers and polls for completion.
@@ -542,7 +544,7 @@ This boundary proves descriptor chaining and counters without changing Q8 arithm
 
 ## 15. What double buffering means here
 
-Double buffering is a hardware dataflow pattern, not an intrinsic optimization that HLS inserts by itself. The r8 candidate currently has one local weight-quant tile and one local scale tile. Loading that tile and consuming it are separate phases.
+Double buffering is a hardware dataflow pattern, not an intrinsic optimization that HLS inserts by itself. The original r8 candidate had one local weight-quant tile and one local scale tile. Section 21 records the later two-bank implementation; the explanation and risks here remain the promotion criteria.
 
 A ping-pong implementation would allocate two quant/scale tile banks. While the compute stage consumes bank A for tile k, a load stage fills bank B with tile k+1. The banks swap roles at the next boundary. HLS pragmas such as `DATAFLOW`, pipelining and streams can schedule the overlap only after the source is divided into independent load and compute stages with explicit ownership. A pragma alone does not remove the array dependency or create the second bank.
 
@@ -568,7 +570,7 @@ Challenges for this design are:
 - r8 is the natural tiled base, but the currently integrated default is the sequential kernel;
 - C simulation success does not prove DATAFLOW overlap; synthesis and RTL co-simulation reports must show it.
 
-Decision: do not implement double buffering until a phase breakdown shows that tile loading is a material fraction of total kernel cycles. If ordered FP accumulation or DDR bandwidth dominates, descriptor batching, row interleaving or wider/better-bursted ports may have a larger return.
+Original decision: defer double buffering until a phase breakdown showed that tile loading was material. Section 21 supersedes that choice at the user's request by implementing it as a separately tagged experiment. Keep it only if Vitis proves overlap and board profiling shows enough gain; otherwise select r8 with double buffering disabled.
 
 ## 16. Feasible implementation on `combination-a-feasible`
 
@@ -774,3 +776,23 @@ Recommended priority after the current profiling foundation:
 | 7 | Gate/up then fused FFN | Proceed only if CPU post-processing/synchronization is a material remainder |
 
 Cycle/byte counters remain high value even when they do not directly accelerate inference because they prevent incorrect optimization claims and guide every later stage.
+
+## 20. First 100 MHz HLS result and immediate decision
+
+The LRC `f100_b64_o8` sequential export has now passed C simulation and Verilog RTL co-simulation bit-exactly. HLS estimates 7 BRAM18K, 12 DSP, 6,058 FF and 9,395 LUT, with a 7.300 ns estimated clock path against the 10.00 ns target. The complete evidence and claim limits are recorded in `soc/docs/results/combination_a_hls_f100_r1_review.md`.
+
+The report identifies two scheduling limits: `load_x` achieves II=42 and the main `read_words` loop achieves II=3. Therefore the next compute experiment is the existing row-interleave 8 candidate at the same 100 MHz configuration. Combination A now adds a separately tagged ping-pong tile experiment to that r8 base; the generated DATAFLOW schedule, rather than the existence of two source arrays, decides whether load/compute overlap was realized.
+
+The initial decision was to retain the sequential default until a board baseline existed. Section 21 supersedes that selection because the teammate has supplied a comparable baseline. The combined design uses the distinct `f100_b64_o8_r8_db` tag and must pass C simulation, synthesis/dataflow review, RTL co-simulation, Vivado timing and board correctness gates. The r8-only form remains selectable with `SOC_GEMV_HW_DOUBLE_BUFFER=0`. This comparison is performed on `combination-a-feasible`; a new branch is not required. Separately named artifacts provide the experiment boundary.
+
+## 21. r8, ping-pong tile buffering and counter instrumentation
+
+The teammate has already established a comparable scalar board baseline, so this branch now selects row interleave 8 and double-buffered weight/scale tiles by default and instruments that design for the next board comparison. The r8 kernel preloads tile 0, computes from one on-chip bank while requesting the next tile into the other bank, and alternates the banks. Each bank holds 16 Q8 blocks. Qwen's common 896-element input is 28 blocks, so QKV and gate/up use two tiles and can exercise the overlap; two 16-block banks retain the former single 32-block tile's total logical storage. `SOC_GEMV_HW_DOUBLE_BUFFER=0` retains r8 with sequential load/compute phases; row interleave 1 remains available as the scalar reference and requires double buffering 0.
+
+Double buffering here is an HLS architecture, not an automatic consequence of using HLS. Two explicit BRAM banks remove the storage conflict; a DATAFLOW region requests concurrent load and compute tasks. C simulation proves numerical equivalence but cannot prove concurrency. Promotion requires the Vitis dataflow/schedule report to show the load and compute processes overlapping, RTL co-simulation to remain bit-exact, and resource/timing results to remain acceptable. If Vitis serializes the tasks, the design is only ping-pong storage and should not be reported as a performance optimization.
+
+The HLS IP publishes successful-job logical read bytes, write bytes and MACs through new read-only AXI-Lite outputs. Vivado adds a 32-bit AXI Timer at `control_base + 0x1000`, clocked from PL0. The HAL measures from timer start immediately before GEMV submission until DONE and IDLE are observed, checks every HLS output-valid flag, and rejects a successful job if hardware logical counters disagree with its validated shape.
+
+The timer reports the real PL-clock submission/completion window, including fixed AXI-Lite start and observation overhead. It is called `pl_cycles`, not pure kernel cycles. The HLS byte counters are logical payload, not AXI beat or DDR-traffic counters. llama.cpp aggregate statistics and CSV traces carry both these hardware values and host elapsed nanoseconds.
+
+The full Git, LRC, Vitis HLS, Vivado, cross-build, Ultra96, smoke-test, llama.cpp and evidence workflow is `soc/docs/COMBINATION_A_R8_COUNTERS_END_TO_END.md`.

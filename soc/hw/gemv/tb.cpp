@@ -83,11 +83,24 @@ static void check_matrix(const char * name, const std::vector<uint8_t> & native,
         soc_q8r_gemv_ref(&matrix, activation.data(), expected.data());
     }
     uint32_t status = UINT32_MAX;
-    soc_gemv_hw(quants.data(), scales.data(), activation.data(), output.data() + 1, rows, nb, status);
+    uint64_t read_bytes = UINT64_MAX, write_bytes = UINT64_MAX, macs = UINT64_MAX;
+    soc_gemv_hw(quants.data(), scales.data(), activation.data(), output.data() + 1, rows, nb,
+                status, read_bytes, write_bytes, macs);
     ++calls;
     int before = failures;
     if (status != expected_status) {
         fprintf(stderr, "FAIL %s: status %u expected %u\n", name, status, expected_status);
+        ++failures;
+    }
+    if (expected_status == SOC_GEMV_HW_OK &&
+        (read_bytes != (uint64_t) rows * nb * 34 + (uint64_t) nb * 34 ||
+         write_bytes != (uint64_t) rows * sizeof(float) ||
+         macs != (uint64_t) rows * nb * 32)) {
+        fprintf(stderr, "FAIL %s: logical hardware counters differ\n", name);
+        ++failures;
+    }
+    if (expected_status != SOC_GEMV_HW_OK && (read_bytes || write_bytes || macs)) {
+        fprintf(stderr, "FAIL %s: failed job published nonzero counters\n", name);
         ++failures;
     }
     if (expected_status == SOC_GEMV_HW_OK && status == SOC_GEMV_HW_OK) {
@@ -142,9 +155,12 @@ static void bad_shapes() {
     };
     for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
         uint32_t status = UINT32_MAX;
-        soc_gemv_hw(w.data(), s.data(), x.data(), y.data(), cases[i][0], cases[i][1], status);
+        uint64_t read_bytes, write_bytes, macs;
+        soc_gemv_hw(w.data(), s.data(), x.data(), y.data(), cases[i][0], cases[i][1],
+                    status, read_bytes, write_bytes, macs);
         ++calls;
         if (status != cases[i][2]) ++failures;
+        if (read_bytes || write_bytes || macs) ++failures;
 #ifdef SOC_GEMV_HW_HOST
         for (size_t j = 0; j < y.size(); ++j) if (y[j] != CANARY) ++failures;
 #endif

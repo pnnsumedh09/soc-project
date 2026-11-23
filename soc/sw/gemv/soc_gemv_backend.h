@@ -42,6 +42,8 @@ typedef struct soc_gemv_backend {
      * Returns 0 on success; nonzero makes the caller fall back to the CPU. */
     int  (*run)(const soc_q8r_mat *m, uint64_t q_dev, uint64_t s_dev,
                 const void *x_q8_0, float *y);
+    int  (*last_counters)(uint64_t *pl_cycles, uint64_t *read_bytes,
+                          uint64_t *write_bytes, uint64_t *macs);
 } soc_gemv_backend;
 
 extern const soc_gemv_backend soc_gemv_backend_emul;
