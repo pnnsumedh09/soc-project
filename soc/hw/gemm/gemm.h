@@ -10,6 +10,14 @@ typedef unsigned __int128 soc_gemm_word;
 typedef ap_uint<128> soc_gemm_word;
 #endif
 
+#ifndef SOC_GEMM_WEIGHT_BITS
+#define SOC_GEMM_WEIGHT_BITS 8
+#endif
+
+#if SOC_GEMM_WEIGHT_BITS != 4 && SOC_GEMM_WEIGHT_BITS != 8
+#error "SOC_GEMM_WEIGHT_BITS must be 4 (Q4_0) or 8 (Q8_0)"
+#endif
+
 enum {
     SOC_GEMM_HW_MAX_NB = 152,
     SOC_GEMM_HW_MAX_M = 151936,
@@ -19,9 +27,6 @@ enum {
     SOC_GEMM_HW_BAD_SHAPE = 1,
     SOC_GEMM_HW_BAD_X_SCALE = 2,
     SOC_GEMM_HW_BAD_W_SCALE = 3,
-    SOC_GEMM_HW_BAD_WEIGHT_TYPE = 4,
-    SOC_GEMM_WEIGHT_Q4_0 = 4,
-    SOC_GEMM_WEIGHT_Q8_0 = 8,
 };
 
 // W is M x K in repacked Q4_0 or Q8_0 form. K = 32 * nb.
@@ -36,7 +41,6 @@ void soc_gemm_hw(const soc_gemm_word *w_quants,
                  uint32_t m,
                  uint32_t nb,
                  uint32_t n,
-                 uint32_t weight_type,
                  uint32_t &status);
 
 #endif

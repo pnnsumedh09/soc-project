@@ -75,8 +75,8 @@ static void put_half(uint8_t *dst, uint16_t value) {
     dst[1] = (uint8_t)(value >> 8);
 }
 
-static void run_shape(uint32_t m, uint32_t nb, uint32_t n,
-                      uint32_t weight_type) {
+static void run_shape(uint32_t m, uint32_t nb, uint32_t n) {
+    const uint32_t weight_type = SOC_GEMM_WEIGHT_BITS;
     static const uint16_t scales[] = {
         0x0001, 0x0400, 0x3000, 0x3800, 0x3c00, 0x4000, 0xb800
     };
@@ -95,11 +95,11 @@ static void run_shape(uint32_t m, uint32_t nb, uint32_t n,
         w_scales[block] = scales[random_u32() %
                                  (sizeof(scales) / sizeof(scales[0]))];
         for (int j = 0; j < 32; ++j) {
-            w_values[block * 32 + j] = weight_type == SOC_GEMM_WEIGHT_Q4_0
+            w_values[block * 32 + j] = weight_type == 4
                 ? (uint8_t)(random_u32() & 0x0fu)
                 : (uint8_t)random_u32();
         }
-        if (weight_type == SOC_GEMM_WEIGHT_Q4_0) {
+        if (weight_type == 4) {
             w_quants[block] = pack_q4_0(&w_values[block * 32]);
         } else {
             w_quants[2 * block] = pack_16(&w_values[block * 32]);
@@ -127,7 +127,7 @@ static void run_shape(uint32_t m, uint32_t nb, uint32_t n,
                 const uint8_t *xb = &x_native[((size_t)col * nb + b) * 34 + 2];
                 int32_t sumi = 0;
                 for (int j = 0; j < 32; ++j) {
-                    int32_t wv = weight_type == SOC_GEMM_WEIGHT_Q4_0
+                    int32_t wv = weight_type == 4
                         ? (int32_t)wb[j] - 8
                         : signed_byte(wb[j]);
                     sumi += wv * signed_byte(xb[j]);
@@ -144,7 +144,7 @@ static void run_shape(uint32_t m, uint32_t nb, uint32_t n,
 
     uint32_t status = 0xffffffffu;
     soc_gemm_hw(w_quants.data(), w_scales.data(), x_native.data(),
-                output.data() + 1, m, nb, n, weight_type, status);
+                output.data() + 1, m, nb, n, status);
 
     int before = failures;
     if (status != SOC_GEMM_HW_OK) {
@@ -180,15 +180,9 @@ static void bad_shapes() {
     std::vector<float> y(1, 123.0f);
     uint32_t status = 0;
     soc_gemm_hw(w.data(), s.data(), x.data(), y.data(),
-                1, 0, 1, SOC_GEMM_WEIGHT_Q8_0, status);
+                1, 0, 1, status);
     if (status != SOC_GEMM_HW_BAD_SHAPE || y[0] != 123.0f) {
         std::fprintf(stderr, "FAIL bad-shape rejection\n");
-        ++failures;
-    }
-    status = 0;
-    soc_gemm_hw(w.data(), s.data(), x.data(), y.data(), 1, 1, 1, 7, status);
-    if (status != SOC_GEMM_HW_BAD_WEIGHT_TYPE) {
-        std::fprintf(stderr, "FAIL bad-weight-type rejection\n");
         ++failures;
     }
 }
@@ -198,14 +192,12 @@ int main() {
         {1, 1, 1}, {3, 1, 2}, {4, 3, 5},
         {7, 28, 3}, {8, 33, 4}, {5, 152, 2}
     };
-    const uint32_t types[] = {SOC_GEMM_WEIGHT_Q4_0, SOC_GEMM_WEIGHT_Q8_0};
-    for (unsigned t = 0; t < sizeof(types) / sizeof(types[0]); ++t) {
-        for (unsigned i = 0; i < sizeof(shapes) / sizeof(shapes[0]); ++i) {
-            run_shape(shapes[i][0], shapes[i][1], shapes[i][2], types[t]);
-        }
+    for (unsigned i = 0; i < sizeof(shapes) / sizeof(shapes[0]); ++i) {
+        run_shape(shapes[i][0], shapes[i][1], shapes[i][2]);
     }
     bad_shapes();
-    std::printf("Q4_0/Q8_0 GEMM C-SIM %s; failures=%d\n",
+    std::printf("Q%u_0 GEMM C-SIM %s; failures=%d\n",
+                SOC_GEMM_WEIGHT_BITS,
                 failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;
 }

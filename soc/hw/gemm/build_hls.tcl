@@ -1,4 +1,15 @@
 set here [file dirname [file normalize [info script]]]
+set repo_root [file normalize [file join $here ../../..]]
+
+set half_src [file join $repo_root soc/hw/common/dot_q8_0_core.cpp]
+set half_inc [file join $repo_root soc/hw/common]
+if {![file exists $half_src]} {
+    set half_src [file join $repo_root soc/lab3_ref/part3/dot_q8_0_core.cpp]
+    set half_inc [file join $repo_root soc/lab3_ref/part3]
+}
+if {![file exists $half_src]} {
+    error "Could not find the verified dot_q8_0_core.cpp half conversion helper"
+}
 
 proc setting {name fallback} {
     if {[info exists ::env($name)]} { return $::env($name) }
@@ -10,26 +21,30 @@ set mhz [setting SOC_GEMM_HW_MHZ 100]
 set burst [setting SOC_GEMM_HW_BURST 64]
 set outstanding [setting SOC_GEMM_HW_OUTSTANDING 8]
 set part [setting SOC_GEMM_HW_PART xczu3eg-sbva484-1-i]
+set bits [setting SOC_GEMM_WEIGHT_BITS 8]
 
 if {$stage ni {csim synth cosim export} ||
     $mhz ni {100 150 200} ||
     $burst ni {1 4 16 64 256} ||
+    $bits ni {4 8} ||
     ![string is integer -strict $outstanding] ||
     $outstanding < 1 || $outstanding > 32 ||
     $part ni {xczu3eg-sbva484-1-e xczu3eg-sbva484-1-i}} {
-    error "Use stage=csim/synth/cosim/export, MHz=100/150/200, burst=1/4/16/64/256, outstanding=1..32, part=-e/-i"
+    error "Use stage=csim/synth/cosim/export, bits=4/8, MHz=100/150/200, burst=1/4/16/64/256, outstanding=1..32, part=-e/-i"
 }
 
-set tag "f${mhz}_b${burst}_o${outstanding}"
+set tag "q${bits}_f${mhz}_b${burst}_o${outstanding}"
 set work [file normalize "$here/../hls_work/gemm/$tag"]
 file mkdir [file dirname $work]
 cd [file dirname $work]
 
 open_project -reset [file tail $work]
 set_top soc_gemm_hw
-set flags "-std=c++11 -ffp-contract=off"
-add_files "$here/gemm.cpp" -cflags $flags
-add_files -tb "$here/tb.cpp" -cflags $flags
+set flags "-std=c++11 -ffp-contract=off -DSOC_GEMM_WEIGHT_BITS=$bits"
+set design_flags "$flags -I$half_inc"
+add_files "$here/gemm.cpp" -cflags $design_flags
+add_files $half_src -cflags $design_flags
+add_files -tb "$here/tb.cpp" -cflags $design_flags
 
 open_solution -reset solution -flow_target vivado
 set_part $part
@@ -67,5 +82,5 @@ if {$stage eq "export"} {
         -vendor soc.org -library hls -version 1.0
 }
 
-puts "Q4_0/Q8_0 GEMM HLS stage $stage completed: $work"
+puts "Q${bits}_0 GEMM HLS stage $stage completed: $work"
 exit
