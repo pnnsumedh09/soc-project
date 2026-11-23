@@ -1,0 +1,38 @@
+# On-Chip Activation Quantization Experiment
+
+## Change
+
+Moved FP32-to-Q8_0 activation quantization from the CPU into the FPGA. The accelerator reads FP32 activations from DRAM, quantizes each 32-element block into BRAM, and runs the existing GEMV datapath. Activation scales are stored as FP32 rather than GGML’s FP16.
+
+Candidate source commit: `4a14a8729960bd3153a9deaaf40385bf7b086d3a`.
+
+## Setup
+
+Ultra96, FPGA clock approximately 100 MHz, Qwen2.5-0.5B-Instruct Q8_0, one CPU thread, context 512, 16 generated tokens, temperature 0, seed 1. Verification was disabled for timing. Each executable used its matching bitstream.
+
+Prompt: `What is a system-on-chip?`
+
+## Results
+
+| Metric | Golden GEMV | On-chip activation quantization |
+|---|---:|---:|
+| Displayed generation speed | 0.4 tok/s | 0.4 tok/s |
+| GEMV backend time | 36.818 s | 36.727 s |
+| Offloaded GEMVs | 2547 | 2547 |
+| CPU fallbacks | 0 | 0 |
+| Weights streamed | 8348.1 MB | 8348.1 MB |
+| Weight-cache size | 525.2 MB | 525.2 MB |
+
+Generated text, truncated at the 16-token limit:
+
+**Golden:**
+> A system-on-chip (SoC) is a microprocessor or other electronic
+
+**On-chip activation quantization:**
+> A system-on-chip (SoC) is a computer system that is designed
+
+An earlier two-token verification run completed successfully with 181 offloaded GEMVs and zero fallbacks. Against the CPU reference, maximum absolute error was `0.00552`; normalized maximum error was `0.000615` (0.0615%). Bit-exact rows were 0.01%.
+
+## Conclusion
+
+On-chip activation quantization functions on the board with zero CPU fallbacks. Backend time decreased by 0.091 s (approximately 0.25%), but both versions displayed 0.4 tok/s. This single run demonstrates no meaningful decode speedup. Output differences require further accuracy evaluation; backend timing alone excludes the golden path’s CPU quantization cost.
