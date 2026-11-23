@@ -152,7 +152,7 @@ static int fpga_init(void) {
     g.mapping = mmap(NULL, g.bytes, PROT_READ | PROT_WRITE, MAP_SHARED, g.dma_fd, 0);
     if (g.mapping == MAP_FAILED) { g.mapping = NULL; goto bad; }
     if (soc_gemv_arena_init(&g.arena, g.mapping, phys, g.bytes)) goto bad;
-    const size_t xb = 8192;
+    const size_t xb = (size_t)SOC_GEMV_MAX_NB * 32 * sizeof(float);
     const size_t yb = ((size_t)SOC_GEMV_MAX_ROWS * 4 + 4095) & ~(size_t)4095;
     if (soc_gemv_arena_alloc(&g.arena, xb, &g.x, &g.xd, &g.xh) ||
         soc_gemv_arena_alloc(&g.arena, yb, &g.y, &g.yd, &g.yh)) goto bad;
@@ -181,7 +181,7 @@ static int fpga_run(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x,
         !soc_gemv_arena_contains(&g.arena, m->quants, q, (size_t)m->rows * m->nb * 32) ||
         !soc_gemv_arena_contains(&g.arena, m->scales, s, (size_t)m->rows * m->nb * 2))
         return fail(EINVAL);
-    memcpy(g.x, x, m->nb * 34);
+    memcpy(g.x, x, (size_t)m->nb * 32 * sizeof(float));
     soc_gemv_job j = {q, s, g.xd, g.yd, m->rows, m->nb};
     uint32_t status;
     if (marker('1')) { g.hal.poisoned = 1; return -1; }
@@ -199,5 +199,5 @@ static int fpga_run(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x,
     return 0;
 }
 const soc_gemv_backend soc_gemv_backend_fpga = {
-    "fpga", fpga_init, fpga_shutdown, fpga_alloc, fpga_free, fpga_run
+    "fpga", 1, fpga_init, fpga_shutdown, fpga_alloc, fpga_free, fpga_run
 };

@@ -2,7 +2,7 @@
  * soc_gemv.h - GEMV offload entry point called from llama.cpp (plan task P2.2)
  *
  * The hook in ggml/src/ggml-cpu/ggml-cpu.c (ggml_compute_forward_mul_mat)
- * calls soc_gemv_q8_0() for every decode matrix-vector product whose weights
+ * calls soc_gemv_f32() for every decode matrix-vector product whose weights
  * are a Q8_0 model tensor. This layer:
  *   - keeps a cache of repacked weight matrices, keyed by the weight pointer
  *     (repack happens on first use; the HAL/backend provides the memory),
@@ -33,6 +33,12 @@ extern "C" {
 /* Same signature as ggml_vec_dot_t (ggml/include/ggml-cpu.h). */
 typedef void (*soc_vec_dot_fn)(int n, float *s, size_t bs, const void *x, size_t bx,
                                const void *y, size_t by, int nrc);
+typedef void (*soc_from_float_fn)(const float *x, void *y, int64_t n);
+
+enum {
+    SOC_GEMV_MAX_INPUT = 8192,
+    SOC_GEMV_MAX_OUTPUT = 151936,
+};
 
 /* 1 if offload is compiled in, enabled by the environment and the backend
  * initialized. Thread-safe; the answer never changes after the first call,
@@ -46,12 +52,15 @@ int soc_gemv_enabled(void);
  *   w_row_stride bytes between rows (tensor->nb[1])
  *   rows         output rows (tensor->ne[1])
  *   n            input length (tensor->ne[0]), multiple of 32
- *   x            n/32 native Q8_0 blocks (the quantized activation row)
+ *   x_fp32       n contiguous FP32 activation values
+ *   x_q8_scratch caller-owned space for n/32 native Q8_0 blocks, used only
+ *                by emulation, verification, or CPU fallback
  *   y            rows floats
  *   ref_vec_dot  llama.cpp's Q8_0 vec_dot (fallback and verification); may be NULL
  */
-void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows, int64_t n,
-                   const void *x, float *y, soc_vec_dot_fn ref_vec_dot);
+void soc_gemv_f32(const void *w, size_t w_row_stride, int64_t rows, int64_t n,
+                  const float *x_fp32, void *x_q8_scratch, float *y,
+                  soc_from_float_fn quantize_q8_0, soc_vec_dot_fn ref_vec_dot);
 
 typedef struct soc_gemv_stats {
     uint64_t calls;            /* offloaded GEMVs (backend run succeeded) */

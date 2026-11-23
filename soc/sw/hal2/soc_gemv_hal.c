@@ -20,9 +20,9 @@ int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
         return fail(EINVAL);
     uint64_t a[] = {j->quants, j->scales, j->x, j->y};
     uint64_t n[] = {(uint64_t)j->rows * j->nb * 32,
-                    (uint64_t)j->rows * j->nb * 2, (uint64_t)j->nb * 34,
+                    (uint64_t)j->rows * j->nb * 2, (uint64_t)j->nb * 32 * sizeof(float),
                     (uint64_t)j->rows * 4};
-    const unsigned align[] = {16, 2, 1, 4};
+    const unsigned align[] = {16, 2, 16, 4};
     for (unsigned i = 0; i < 4; ++i) {
         if (a[i] % align[i] || a[i] > UINT64_MAX - n[i]) return fail(EINVAL);
         for (unsigned k = 0; k < i; ++k)

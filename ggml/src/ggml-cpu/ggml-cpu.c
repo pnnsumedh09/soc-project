@@ -1278,7 +1278,10 @@ static bool ggml_soc_gemv_eligible(const struct ggml_compute_params * params,
            src0->type == GGML_TYPE_Q8_0 && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32 &&
            src1->ne[1] == 1 && src1->ne[2] == 1 && src1->ne[3] == 1 &&
            src0->ne[2] == 1 && src0->ne[3] == 1 &&
-           src0->ne[0] % QK8_0 == 0 &&
+           src0->ne[0] > 0 && src0->ne[0] <= SOC_GEMV_MAX_INPUT && src0->ne[0] % QK8_0 == 0 &&
+           src0->ne[1] > 0 && src0->ne[1] <= SOC_GEMV_MAX_OUTPUT &&
+           ggml_is_contiguous(src1) && ggml_is_contiguous(dst) &&
+           params->wdata != NULL && params->wsize >= ggml_row_size(GGML_TYPE_Q8_0, src0->ne[0]) &&
            src0->view_src == NULL && src0->extra == NULL && src0->buffer != NULL &&
            ggml_backend_buffer_get_usage(src0->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
            soc_gemv_enabled();
@@ -1329,6 +1332,18 @@ void ggml_compute_forward_mul_mat(
     GGML_ASSERT(nb0 <= nb1);
     GGML_ASSERT(nb1 <= nb2);
     GGML_ASSERT(nb2 <= nb3);
+
+#ifdef GGML_SOC_GEMV
+    if (ggml_soc_gemv_eligible(params, src0, src1, dst)) {
+        if (ith == 0) {
+            soc_gemv_f32(src0->data, src0->nb[1], src0->ne[1], src0->ne[0],
+                         (const float *)src1->data, params->wdata, (float *)dst->data,
+                         (soc_from_float_fn)from_float,
+                         (soc_vec_dot_fn)type_traits_cpu[GGML_TYPE_Q8_0].vec_dot);
+        }
+        return;
+    }
+#endif
 
     // nb01 >= nb00 - src0 is not transposed
     //   compute by src0 rows
@@ -1418,18 +1433,6 @@ UseGgmlGemm1:;
     }
 
     ggml_barrier(params->threadpool);
-
-#ifdef GGML_SOC_GEMV
-    // src1 is now quantized to Q8_0 blocks in params->wdata (all threads done).
-    if (ggml_soc_gemv_eligible(params, src0, src1, dst)) {
-        if (ith == 0) {
-            soc_gemv_q8_0(src0->data, src0->nb[1], src0->ne[1], src0->ne[0],
-                          params->wdata, (float *) dst->data,
-                          (soc_vec_dot_fn) type_traits_cpu[GGML_TYPE_Q8_0].vec_dot);
-        }
-        return;
-    }
-#endif
 
 #if GGML_USE_LLAMAFILE
     if (!params->use_ref && src1->type != vec_dot_type) {

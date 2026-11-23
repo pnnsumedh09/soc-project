@@ -7,8 +7,8 @@
 #include <stdint.h>
 
 #define DOT_QK     32
-#define DOT_MAX_N  4864                   /* largest dot length in Qwen2.5-0.5B */
-#define DOT_MAX_NB (DOT_MAX_N / DOT_QK)   /* 152 blocks */
+#define DOT_MAX_N  8192                   /* activation BRAM capacity */
+#define DOT_MAX_NB (DOT_MAX_N / DOT_QK)   /* 256 blocks */
 
 /* FP16 stored as raw bits (replaces the HLS `half` type) */
 typedef uint16_t dot_half_t;

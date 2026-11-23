@@ -18,7 +18,7 @@ static_assert(SOC_GEMV_HW_ROW_INTERLEAVE == 1 || SOC_GEMV_HW_ROW_INTERLEAVE == 8
               "Select the baseline (1) or eight-row interleaving (8)");
 
 enum {
-    SOC_GEMV_HW_MAX_NB = 152,
+    SOC_GEMV_HW_MAX_NB = 256,
     SOC_GEMV_HW_MAX_ROWS = 151936,
     SOC_GEMV_HW_OK = 0,
     SOC_GEMV_HW_BAD_SHAPE = 1,
@@ -27,7 +27,7 @@ enum {
 };
 
 void soc_gemv_hw(const soc_gemv_word * w_quants, const uint16_t * w_scales,
-                 const uint8_t * x_native, float * y,
+                 const float * x_fp32, float * y,
                  uint32_t rows, uint32_t nb, uint32_t & status);
 
 #endif

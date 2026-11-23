@@ -1,10 +1,32 @@
 #include "gemv.h"
 #include "dot_q8_0_core.h"
 
+#ifdef SOC_GEMV_HW_HOST
+#include <cmath>
+#else
+#include <hls_math.h>
+#endif
+
 static_assert(SOC_GEMV_HW_MAX_NB == DOT_MAX_NB, "Activation storage must match the supported dot length");
 
 static bool finite_half(uint16_t h) {
     return (h & 0x7c00u) != 0x7c00u;
+}
+
+static float absolute_value(float value) {
+#ifdef SOC_GEMV_HW_HOST
+    return std::fabs(value);
+#else
+    return hls::fabsf(value);
+#endif
+}
+
+static int32_t rounded_int(float value) {
+#ifdef SOC_GEMV_HW_HOST
+    return (int32_t) std::round(value);
+#else
+    return (int32_t) hls::roundf(value);
+#endif
 }
 
 static int32_t dot_beat(soc_gemv_word w, soc_gemv_word x) {
@@ -51,13 +73,13 @@ static int32_t dot_beat(soc_gemv_word w, soc_gemv_word x) {
 }
 
 void soc_gemv_hw(const soc_gemv_word * w_quants, const uint16_t * w_scales,
-                 const uint8_t * x_native, float * y,
+                 const float * x_fp32, float * y,
                  uint32_t rows, uint32_t nb, uint32_t & status) {
 #ifndef SOC_GEMV_HW_HOST
 #pragma HLS INTERFACE s_axilite port=return bundle=control
 #pragma HLS INTERFACE s_axilite port=w_quants bundle=control offset=0x10
 #pragma HLS INTERFACE s_axilite port=w_scales bundle=control offset=0x20
-#pragma HLS INTERFACE s_axilite port=x_native bundle=control offset=0x30
+#pragma HLS INTERFACE s_axilite port=x_fp32 bundle=control offset=0x30
 #pragma HLS INTERFACE s_axilite port=y bundle=control offset=0x40
 #pragma HLS INTERFACE s_axilite port=rows bundle=control offset=0x50
 #pragma HLS INTERFACE s_axilite port=nb bundle=control offset=0x58
@@ -76,22 +98,43 @@ void soc_gemv_hw(const soc_gemv_word * w_quants, const uint16_t * w_scales,
     float x_scales[SOC_GEMV_HW_MAX_NB];
 #ifndef SOC_GEMV_HW_HOST
 #pragma HLS BIND_STORAGE variable=x_words type=ram_1p impl=bram
+#pragma HLS BIND_STORAGE variable=x_scales type=ram_1p impl=bram
 #endif
 load_x:
     for (uint32_t b = 0; b < nb; ++b) {
-        uint32_t base = b * 34;
-        uint16_t scale = (uint16_t) x_native[base] | ((uint16_t) x_native[base + 1] << 8);
-        if (!finite_half(scale)) {
-            status = SOC_GEMV_HW_BAD_X_SCALE;
-            return;
-        }
-        x_scales[b] = dot_half_to_float(scale);
-        for (uint32_t half = 0; half < 2; ++half) {
-            soc_gemv_word word = 0;
-            for (uint32_t j = 0; j < 16; ++j) {
-                word |= soc_gemv_word(x_native[base + 2 + half * 16 + j]) << (8 * j);
+        float values[32];
+        float amax = 0.0f;
+load_x_block:
+        for (uint32_t j = 0; j < 32; ++j) {
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+            float value = x_fp32[b * 32 + j];
+            values[j] = value;
+            float magnitude = absolute_value(value);
+            if (magnitude > amax) {
+                amax = magnitude;
             }
-            x_words[2 * b + half] = word;
+        }
+
+        float scale = amax / 127.0f;
+        float inverse_scale = amax != 0.0f ? 127.0f / amax : 0.0f;
+        x_scales[b] = scale;
+        soc_gemv_word words[2] = {0, 0};
+quantize_x_block:
+        for (uint32_t j = 0; j < 32; ++j) {
+#ifndef SOC_GEMV_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+            int32_t quant = rounded_int(values[j] * inverse_scale);
+            if (quant < -127) quant = -127;
+            if (quant > 127) quant = 127;
+            uint32_t half = j / 16;
+            uint32_t shift = 8 * (j % 16);
+            words[half] |= soc_gemv_word((uint8_t) quant) << shift;
+        }
+        for (uint32_t half = 0; half < 2; ++half) {
+            x_words[2 * b + half] = words[half];
         }
     }
 

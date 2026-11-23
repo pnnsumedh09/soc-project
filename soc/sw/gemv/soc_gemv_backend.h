@@ -25,6 +25,7 @@ extern "C" {
 
 typedef struct soc_gemv_backend {
     const char *name;
+    int activation_is_fp32;
 
     /* Called once before first use. 0 = OK. */
     int  (*init)(void);
@@ -38,10 +39,10 @@ typedef struct soc_gemv_backend {
     void (*free)(void *handle);
 
     /* y[0..m->rows) = W x. q_dev / s_dev are the device addresses of
-     * m->quants / m->scales. x_q8_0 holds m->nb native Q8_0 blocks (34 B each).
-     * Returns 0 on success; nonzero makes the caller fall back to the CPU. */
+     * m->quants / m->scales. x is FP32 when activation_is_fp32 is set and
+     * native Q8_0 otherwise. */
     int  (*run)(const soc_q8r_mat *m, uint64_t q_dev, uint64_t s_dev,
-                const void *x_q8_0, float *y);
+                const void *x, float *y);
 } soc_gemv_backend;
 
 extern const soc_gemv_backend soc_gemv_backend_emul;

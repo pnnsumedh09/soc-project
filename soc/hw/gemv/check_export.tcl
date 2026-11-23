@@ -11,7 +11,7 @@ proc soc_gemv_check_registers {ip_repo} {
     close $f
     foreach {suffix expected} {
         AP_CTRL 0x00 GIE 0x04 W_QUANTS_DATA 0x10 W_SCALES_DATA 0x20
-        X_NATIVE_DATA 0x30 Y_DATA 0x40 ROWS_DATA 0x50 NB_DATA 0x58
+        X_FP32_DATA 0x30 Y_DATA 0x40 ROWS_DATA 0x50 NB_DATA 0x58
         STATUS_DATA 0x60 STATUS_CTRL 0x64
     } {
         set macro XSOC_GEMV_HW_CONTROL_ADDR_$suffix

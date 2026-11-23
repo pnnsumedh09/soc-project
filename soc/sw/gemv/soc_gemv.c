@@ -284,20 +284,24 @@ static void verify(const void *w, size_t stride, uint32_t rows, uint32_t nb,
 /* Entry point                                                                */
 /* ------------------------------------------------------------------------- */
 
-void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n64,
-                   const void *x, float *y, soc_vec_dot_fn ref_vec_dot)
+void soc_gemv_f32(const void *w, size_t w_row_stride, int64_t rows64, int64_t n64,
+                  const float *x_fp32, void *x_q8_scratch, float *y,
+                  soc_from_float_fn quantize_q8_0, soc_vec_dot_fn ref_vec_dot)
 {
     pthread_once(&g_once, init_once);
 
-    int shape_ok = w && x && y && rows64 > 0 && rows64 <= (int64_t)UINT32_MAX &&
-                   n64 > 0 && n64 % SOC_QK == 0 && n64 / SOC_QK <= (int64_t)UINT32_MAX &&
+    int shape_ok = w && x_fp32 && x_q8_scratch && y && quantize_q8_0 &&
+                   rows64 > 0 && rows64 <= SOC_GEMV_MAX_OUTPUT &&
+                   n64 > 0 && n64 <= SOC_GEMV_MAX_INPUT && n64 % SOC_QK == 0 &&
                    w_row_stride >= (size_t)(n64 / SOC_QK) * SOC_Q8_0_BLOCK_BYTES;
     uint32_t rows = shape_ok ? (uint32_t)rows64 : 0;
     uint32_t nb   = shape_ok ? (uint32_t)(n64 / SOC_QK) : 0;
 
     if (!shape_ok || !g_enabled) {
-        if (shape_ok)
-            cpu_gemv(w, w_row_stride, rows, nb, x, y, ref_vec_dot);
+        if (shape_ok) {
+            quantize_q8_0(x_fp32, x_q8_scratch, n64);
+            cpu_gemv(w, w_row_stride, rows, nb, x_q8_scratch, y, ref_vec_dot);
+        }
         pthread_mutex_lock(&g_lock);
         g_st.fallback_calls++;
         pthread_mutex_unlock(&g_lock);
@@ -309,9 +313,16 @@ void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n
 
     slot_t *s = lookup(w, w_row_stride, rows, nb);
     int rc = -1;
+    int x_is_quantized = 0;
     if (s && s->state == SLOT_READY) {
+        const void *backend_x = x_fp32;
+        if (!g_be->activation_is_fp32) {
+            quantize_q8_0(x_fp32, x_q8_scratch, n64);
+            backend_x = x_q8_scratch;
+            x_is_quantized = 1;
+        }
         uint64_t t0 = now_ns();
-        rc = g_be->run(&s->mat, s->q_dev, s->s_dev, x, y);
+        rc = g_be->run(&s->mat, s->q_dev, s->s_dev, backend_x, y);
         uint64_t dt = now_ns() - t0;
         if (rc == 0) {
             g_st.calls++;
@@ -326,10 +337,14 @@ void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n
     }
 
     if (rc != 0) {
-        cpu_gemv(w, w_row_stride, rows, nb, x, y, ref_vec_dot);
+        if (!x_is_quantized)
+            quantize_q8_0(x_fp32, x_q8_scratch, n64);
+        cpu_gemv(w, w_row_stride, rows, nb, x_q8_scratch, y, ref_vec_dot);
         g_st.fallback_calls++;
     } else if (g_verify) {
-        verify(w, w_row_stride, rows, nb, x, y, ref_vec_dot);
+        if (!x_is_quantized)
+            quantize_q8_0(x_fp32, x_q8_scratch, n64);
+        verify(w, w_row_stride, rows, nb, x_q8_scratch, y, ref_vec_dot);
     }
 
     pthread_mutex_unlock(&g_lock);

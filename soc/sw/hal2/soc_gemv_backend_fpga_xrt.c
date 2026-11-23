@@ -261,7 +261,7 @@ static int init_backend(void) {
     if (!(ctrl & SOC_GEMV_IDLE) || (ctrl & (SOC_GEMV_START | SOC_GEMV_AUTO_RESTART))) {
         errno = EBUSY; goto bad;
     }
-    if (allocate_buffer(8192, &g.x) ||
+    if (allocate_buffer((size_t)SOC_GEMV_MAX_NB * 32 * sizeof(float), &g.x) ||
         allocate_buffer((size_t)SOC_GEMV_MAX_ROWS * sizeof(float), &g.y)) goto bad;
     g.hal = (soc_gemv_hal){{NULL, read32, write32, now_ns, barrier, barrier}, 0};
     if (marker('0')) goto bad;
@@ -288,7 +288,7 @@ static int run_job(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x, 
     if (!g.ready || !m || !x || !y || !m->rows || m->rows > SOC_GEMV_MAX_ROWS ||
         !m->nb || m->nb > SOC_GEMV_MAX_NB) return fail(EINVAL);
     size_t qb = (size_t)m->rows * m->nb * 32, sb = (size_t)m->rows * m->nb * 2;
-    size_t xb = (size_t)m->nb * 34, yb = (size_t)m->rows * sizeof(float);
+    size_t xb = (size_t)m->nb * 32 * sizeof(float), yb = (size_t)m->rows * sizeof(float);
     buffer *w = lookup(m->quants, q, qb), *scales = lookup(m->scales, s, sb);
     if (!w || !scales) return fail(EINVAL);
     uint64_t tick = profile_start();
@@ -348,5 +348,5 @@ static int run_backend(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void 
     return rc;
 }
 const soc_gemv_backend soc_gemv_backend_fpga = {
-    "fpga", init_backend, shutdown_backend, alloc_backend, free_backend, run_backend
+    "fpga", 1, init_backend, shutdown_backend, alloc_backend, free_backend, run_backend
 };

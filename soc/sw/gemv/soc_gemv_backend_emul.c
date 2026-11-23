@@ -48,6 +48,7 @@ static int emul_run(const soc_q8r_mat *m, uint64_t q_dev, uint64_t s_dev,
 
 const soc_gemv_backend soc_gemv_backend_emul = {
     .name     = "emul",
+    .activation_is_fp32 = 0,
     .init     = emul_init,
     .shutdown = emul_shutdown,
     .alloc    = emul_alloc,

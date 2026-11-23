@@ -42,10 +42,10 @@ set_directive_interface -mode m_axi -offset slave -bundle scales -depth 9728 \
     -max_read_burst_length $burst -num_read_outstanding $outstanding \
     -max_write_burst_length 2 -num_write_outstanding 1 \
     -max_widen_bitwidth 128 soc_gemv_hw w_scales
-set_directive_interface -mode m_axi -offset slave -bundle activation -depth 5168 \
+set_directive_interface -mode m_axi -offset slave -bundle activation -depth 8192 \
     -max_read_burst_length 16 -num_read_outstanding 2 \
     -max_write_burst_length 2 -num_write_outstanding 1 \
-    -max_widen_bitwidth 32 soc_gemv_hw x_native
+    -max_widen_bitwidth 128 soc_gemv_hw x_fp32
 set_directive_interface -mode m_axi -offset slave -bundle output -depth 64 \
     -max_read_burst_length 2 -num_read_outstanding 1 \
     -max_write_burst_length 16 -num_write_outstanding 2 \
