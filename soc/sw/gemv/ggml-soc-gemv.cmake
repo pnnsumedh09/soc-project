@@ -18,8 +18,7 @@ if (GGML_SOC_GEMV_FPGA)
         message(FATAL_ERROR "The FPGA adapter requires a Linux target")
     endif()
     list(APPEND SOC_GEMV_SOURCES
-        "${SOC_SW_DIR}/hal2/soc_gemv_hal.c"
-        "${SOC_SW_DIR}/hal2/soc_gemv_register_test.c")
+        "${SOC_SW_DIR}/hal2/soc_gemv_hal.c")
     if (GGML_SOC_GEMV_XRT)
         # Repository-local board headers are already target headers. Do not
         # reroot this path into the cross compiler's sysroot.

@@ -18,3 +18,7 @@ if(_soc_board_default)
 endif()
 unset(_soc_processor)
 unset(_soc_board_default)
+
+# Production checkout omits upstream test directories.
+option(LLAMA_BUILD_TESTS "Build llama.cpp tests" OFF)
+option(GGML_BUILD_TESTS "Build ggml tests" OFF)
