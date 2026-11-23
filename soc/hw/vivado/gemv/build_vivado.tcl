@@ -64,17 +64,24 @@ source "$here/../../gemv/check_export.tcl"
 soc_gemv_check_registers $ip_repo
 set rpt [file rootname $report].rpt
 if {![file isfile $rpt]} { error "Missing text synthesis report: $rpt" }
-set stream [open $rpt r]
-set schedule [read $stream]
-close $stream
-if {$interleave == 8 && [string first "interleave_words" $schedule] < 0} {
+set schedule_reports [glob -nocomplain "[file dirname $rpt]/*_csynth.rpt"]
+if {[llength $schedule_reports] == 0} { error "No HLS schedule reports found beside $rpt" }
+set schedule ""
+foreach schedule_report $schedule_reports {
+    set stream [open $schedule_report r]
+    append schedule "\n$schedule_report\n" [read $stream]
+    close $stream
+}
+puts "Inspecting HLS schedules: [join $schedule_reports {, }]"
+set has_r8 [expr {[string first "interleave_words" $schedule] >= 0 || [string first "compute_r8_tile" $schedule] >= 0}]
+set has_double_buffer [expr {[string first "double_buffered_tiles" $schedule] >= 0 || [string first "load_compute_r8" $schedule] >= 0}]
+if {$interleave == 8 && !$has_r8} {
     error "The selected export is not the requested row-interleave-8 kernel"
 }
-if {$double_buffer && [string first "double_buffered_tiles" $schedule] < 0} {
+if {$double_buffer && !$has_double_buffer} {
     error "The selected export does not contain the requested double-buffered tile schedule"
 }
-if {$interleave == 1 &&
-    ([string first "interleave_words" $schedule] >= 0 || [string first "read_words" $schedule] < 0)} {
+if {$interleave == 1 && ($has_r8 || [string first "read_words" $schedule] < 0)} {
     error "The selected export is not the requested sequential kernel"
 }
 if {$hls_part ne $part} {

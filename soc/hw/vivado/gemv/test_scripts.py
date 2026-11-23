@@ -140,7 +140,7 @@ if {$case eq "export"} {
     set env(SOC_GEMV_HW_ROW_INTERLEAVE) 1
     set env(SOC_GEMV_HW_DOUBLE_BUFFER) 0
 }
-set bad [expr {$case in {no_ps bad_base bad_interleave bad_double_buffer bad_abi bad_header bad_part bad_clock board_wrong}}]
+set bad [expr {$case in {no_ps bad_base bad_interleave bad_double_buffer bad_r8_schedule bad_double_buffer_schedule bad_abi bad_header bad_part bad_clock board_wrong}}]
 set failed [catch {source $script} message]
 if {[string match "reset_*" $case]} {
     if {!$failed || $created != 1 || $saved != 0 ||
@@ -228,8 +228,12 @@ def main():
         report.mkdir(parents=True)
         (solution / "syn/verilog").mkdir()
         (solution / "syn/verilog/soc_gemv_hw.v").write_text("// mock RTL\n")
-        (report / "soc_gemv_hw_csynth.rpt").write_text(
-            "soc_gemv_hw_Pipeline_interleave_words\ndouble_buffered_tiles\n")
+        top_report = report / "soc_gemv_hw_csynth.rpt"
+        r8_report = report / "compute_r8_tile_csynth.rpt"
+        db_report = report / "load_compute_r8_csynth.rpt"
+        top_report.write_text("soc_gemv_hw\n")
+        r8_report.write_text("compute_r8_tile\ninterleave_words\n")
+        db_report.write_text("load_compute_r8\ndouble_buffered_tiles\n")
         xml = "<root><Part>xczu3eg-sbva484-1-e</Part><TargetClockPeriod>6.67</TargetClockPeriod></root>"
         xmlpath = report / "soc_gemv_hw_csynth.xml"
         xmlpath.write_text(xml)
@@ -254,6 +258,8 @@ def main():
         shutil.copytree(solution, sequential)
         (sequential / "syn/report/soc_gemv_hw_csynth.rpt").write_text(
             "soc_gemv_hw_Pipeline_read_words\n")
+        (sequential / "syn/report/compute_r8_tile_csynth.rpt").unlink()
+        (sequential / "syn/report/load_compute_r8_csynth.rpt").unlink()
         ps = root / "ps.tcl"
         ps.write_text("# mock verified course PS settings\n")
         mock = root / "mock.tcl"
@@ -265,8 +271,13 @@ def main():
                        "reset_bad_inverter", "reset_bad_net", "reset_bad_output",
                        "reset_multiple_drivers")
         cases = (("bd", "board_v2") + reset_cases if reset_only else
-                 ("check", "bd", "board_v2", "board_wrong", "no_ps", "bad_base", "bad_interleave", "bad_double_buffer", "bad_abi", "bad_header", "bad_part", "bad_clock", "export") + reset_cases)
+                 ("check", "bd", "board_v2", "board_wrong", "no_ps", "bad_base", "bad_interleave", "bad_double_buffer", "bad_r8_schedule", "bad_double_buffer_schedule", "bad_abi", "bad_header", "bad_part", "bad_clock", "export") + reset_cases)
         for case in cases:
+            top_report.write_text("soc_gemv_hw\n")
+            r8_report.write_text("compute_r8_tile\ninterleave_words\n")
+            db_report.write_text("load_compute_r8\ndouble_buffered_tiles\n")
+            if case == "bad_r8_schedule": r8_report.unlink()
+            if case == "bad_double_buffer_schedule": db_report.unlink()
             header.write_text(abi.replace("STATUS_DATA 0x60", "STATUS_DATA 0x68") if case=="bad_abi" else abi)
             if case == "bad_header": header.unlink()
             current_xml = xml.replace("-1-e", "-1-i") if case=="bad_part" else xml

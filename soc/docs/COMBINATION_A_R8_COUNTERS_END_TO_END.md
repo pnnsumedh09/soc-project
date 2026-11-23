@@ -246,6 +246,10 @@ grep -R -E 'interleave_words|Initiation Interval|Utilization|Estimated' \
 
 Confirm `interleave_words` achieved II=1. Inspect the DATAFLOW report to verify that next-tile loading overlaps current-tile compute; two source arrays alone are not proof. Compare total RTL transaction latency and resources with both saved r1 and r8-only results.
 
+Vivado preflight must inspect the complete `solution/syn/report/*_csynth.rpt` set. Vitis can place `interleave_words` and the helper names in child-function reports instead of `soc_gemv_hw_csynth.rpt`; checking only the top report causes a false scalar-export rejection. If no `interleave_words` or `compute_r8_tile` marker exists anywhere in the report set, treat it as a genuinely wrong export and rebuild HLS.
+
+The exact ABI-checker, report-discovery, Dataflow Viewer, r8-only A/B build, comparison commands and PASS/FAIL decision table are in the workspace-level `COMBINATION_A_R8_DOUBLE_BUFFER_PROFILING_WORKFLOW.md`, Section 7.1. At minimum, run `soc_gemv_check_registers`, require the Verilog co-simulation row to pass, and confirm overlapping `load_r8_tile`/`compute_r8_tile` activity before starting Vivado.
+
 ## 7. Vivado block design with AXI Timer
 
 Use the same environment and select the board preset:
