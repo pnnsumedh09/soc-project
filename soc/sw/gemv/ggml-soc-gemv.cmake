@@ -9,15 +9,37 @@ set(SOC_GEMV_SOURCES
     "${SOC_SW_DIR}/gemv/soc_gemv_backend_emul.c")
 
 option(GGML_SOC_GEMV_FPGA "Build optional Linux UIO/u-dma-buf GEMV backend" OFF)
+option(GGML_SOC_GEMV_XRT "Use PYNQ/XRT buffers instead of u-dma-buf" OFF)
+if (GGML_SOC_GEMV_XRT AND NOT GGML_SOC_GEMV_FPGA)
+    message(FATAL_ERROR "GGML_SOC_GEMV_XRT requires GGML_SOC_GEMV_FPGA=ON")
+endif()
 if (GGML_SOC_GEMV_FPGA)
     if (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
         message(FATAL_ERROR "The FPGA adapter requires a Linux target")
     endif()
     list(APPEND SOC_GEMV_SOURCES
         "${SOC_SW_DIR}/hal2/soc_gemv_hal.c"
-        "${SOC_SW_DIR}/hal2/soc_gemv_register_test.c"
-        "${SOC_SW_DIR}/hal2/soc_gemv_arena.c"
-        "${SOC_SW_DIR}/hal2/soc_gemv_backend_fpga.c")
+        "${SOC_SW_DIR}/hal2/soc_gemv_register_test.c")
+    if (GGML_SOC_GEMV_XRT)
+        # Repository-local board headers are already target headers. Do not
+        # reroot this path into the cross compiler's sysroot.
+        if (NOT SOC_GEMV_XRT_INCLUDE_DIR AND
+            EXISTS "${SOC_SW_DIR}/../third_party/xrt/include/xrt/xrt.h")
+            set(SOC_GEMV_XRT_INCLUDE_DIR "${SOC_SW_DIR}/../third_party/xrt/include/xrt"
+                CACHE PATH "Board-matched XRT include directory" FORCE)
+        endif()
+        find_path(SOC_GEMV_XRT_INCLUDE_DIR xrt.h PATH_SUFFIXES xrt)
+        if (NOT SOC_GEMV_XRT_INCLUDE_DIR)
+            message(FATAL_ERROR "Set SOC_GEMV_XRT_INCLUDE_DIR to the board XRT headers")
+        endif()
+        list(APPEND SOC_GEMV_SOURCES "${SOC_SW_DIR}/hal2/soc_gemv_backend_fpga_xrt.c")
+        target_include_directories(${GGML_CPU_NAME} PRIVATE "${SOC_GEMV_XRT_INCLUDE_DIR}")
+        target_link_libraries(${GGML_CPU_NAME} PRIVATE ${CMAKE_DL_LIBS})
+    else()
+        list(APPEND SOC_GEMV_SOURCES
+            "${SOC_SW_DIR}/hal2/soc_gemv_arena.c"
+            "${SOC_SW_DIR}/hal2/soc_gemv_backend_fpga.c")
+    endif()
     target_include_directories(${GGML_CPU_NAME} PRIVATE "${SOC_SW_DIR}/hal2")
     target_compile_definitions(${GGML_CPU_NAME} PRIVATE SOC_GEMV_WITH_FPGA)
 endif()

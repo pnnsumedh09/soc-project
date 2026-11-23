@@ -153,3 +153,14 @@ a.out.*
 
 AGENTS.local.md
 .pi/SYSTEM.md
+
+# GEMV generated experiment outputs
+/soc/hw/hls_work/
+/soc/hw/vivado/gemv_f*/
+/soc/hw/out/*.xsa
+/soc/hw/out/*_fifo.*
+/soc/hw/out/*_r8.*
+/build-ultra96*/
+/.Xil/
+/vivado*.jou
+/vivado*.log

@@ -1,0 +1,3 @@
+
+# Preserve imported board SDK header formatting.
+soc/third_party/xrt/include/** -whitespace

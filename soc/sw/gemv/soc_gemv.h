@@ -6,7 +6,7 @@
  * are a Q8_0 model tensor. This layer:
  *   - keeps a cache of repacked weight matrices, keyed by the weight pointer
  *     (repack happens on first use; the HAL/backend provides the memory),
- *   - sends the work to the selected backend ("emul" now, FPGA later),
+ *   - sends the work to the selected backend (FPGA by default in an FPGA-enabled build),
  *   - falls back to llama.cpp's own vec_dot on any failure,
  *   - optionally verifies results against vec_dot and prints statistics.
  *
@@ -14,7 +14,7 @@
  *
  * Runtime environment variables (read once):
  *   SOC_GEMV=0            disable offload (everything runs on llama.cpp's CPU path)
- *   SOC_GEMV_BACKEND=emul backend name (default emul)
+ *   SOC_GEMV_BACKEND=emul override backend (default fpga with FPGA support, else emul)
  *   SOC_GEMV_VERIFY=1     recompute every offloaded GEMV with llama.cpp's vec_dot and
  *                         record the difference (slow; for testing)
  *   SOC_GEMV_STATS=1      print statistics to stderr at exit

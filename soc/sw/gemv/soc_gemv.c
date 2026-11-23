@@ -85,8 +85,13 @@ static void init_once(void)
     g_strict      = env_flag("SOC_GEMV_STRICT", 0);
 
     const char *name = getenv("SOC_GEMV_BACKEND");
-    if (!name || !*name)
+    if (!name || !*name) {
+#ifdef SOC_GEMV_WITH_FPGA
+        name = "fpga";
+#else
         name = "emul";
+#endif
+    }
 
     if (strcmp(name, soc_gemv_backend_emul.name) == 0) {
         g_be = &soc_gemv_backend_emul;
