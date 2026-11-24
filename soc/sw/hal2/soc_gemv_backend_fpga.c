@@ -203,7 +203,8 @@ static int fpga_run(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x,
     if (!g.ready || g.hal.poisoned) return fail(EIO);
     if (!m || !x || !y || !m->rows || m->rows > SOC_GEMV_MAX_ROWS ||
         !m->nb || m->nb > SOC_GEMV_MAX_NB || !columns || columns > SOC_GEMV_MAX_N ||
-        !soc_gemv_arena_contains(&g.arena, m->quants, q, (size_t)m->rows * m->nb * 32) ||
+        !soc_gemv_arena_contains(&g.arena, m->quants, q,
+                                 (size_t)m->rows * m->nb * SOC_WEIGHT_QUANT_BYTES) ||
         !soc_gemv_arena_contains(&g.arena, m->scales, s, (size_t)m->rows * m->nb * 2))
         return fail(EINVAL);
     size_t xb = (size_t)columns * m->nb * 34;

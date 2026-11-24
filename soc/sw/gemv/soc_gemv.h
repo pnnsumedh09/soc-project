@@ -41,6 +41,10 @@ int soc_gemv_enabled(void);
 
 #define SOC_GEMM_MAX_COLUMNS 4096
 
+#ifndef SOC_GEMM_WEIGHT_BITS
+#define SOC_GEMM_WEIGHT_BITS 8
+#endif
+
 /*
  * Y = W X for one Q8_0 weight matrix and one or more activation columns.
  * Always produces Y (offloaded, or on the CPU if anything fails).
@@ -53,6 +57,13 @@ int soc_gemv_enabled(void);
  *   y            columns*rows floats, column-major
  *   ref_vec_dot  llama.cpp's Q8_0 vec_dot (fallback and verification); may be NULL
  */
+#if SOC_GEMM_WEIGHT_BITS == 4
+void soc_gemm_q4_0(const void *w, size_t w_row_stride, int64_t rows, int64_t k,
+                   int64_t columns, const void *x, float *y,
+                   soc_vec_dot_fn ref_vec_dot);
+void soc_gemv_q4_0(const void *w, size_t w_row_stride, int64_t rows, int64_t n,
+                   const void *x, float *y, soc_vec_dot_fn ref_vec_dot);
+#elif SOC_GEMM_WEIGHT_BITS == 8
 void soc_gemm_q8_0(const void *w, size_t w_row_stride, int64_t rows, int64_t k,
                    int64_t columns, const void *x, float *y,
                    soc_vec_dot_fn ref_vec_dot);
@@ -60,6 +71,9 @@ void soc_gemm_q8_0(const void *w, size_t w_row_stride, int64_t rows, int64_t k,
 /* Compatibility entry point. A GEMV is the N=1 case of GEMM. */
 void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows, int64_t n,
                    const void *x, float *y, soc_vec_dot_fn ref_vec_dot);
+#else
+#error "SOC_GEMM_WEIGHT_BITS must be 4 or 8"
+#endif
 
 typedef struct soc_gemv_stats {
     uint64_t calls;            /* offloaded calls (backend run succeeded) */

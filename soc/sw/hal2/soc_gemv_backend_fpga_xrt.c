@@ -312,7 +312,8 @@ static int run_job(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x, 
     if (!g.ready || !m || !x || !y || !m->rows || m->rows > SOC_GEMV_MAX_ROWS ||
         !m->nb || m->nb > SOC_GEMV_MAX_NB || !columns || columns > SOC_GEMV_MAX_N)
         return fail(EINVAL);
-    size_t qb = (size_t)m->rows * m->nb * 32, sb = (size_t)m->rows * m->nb * 2;
+    size_t qb = (size_t)m->rows * m->nb * SOC_WEIGHT_QUANT_BYTES;
+    size_t sb = (size_t)m->rows * m->nb * 2;
     size_t xb = (size_t)columns * m->nb * 34;
     size_t yb = (size_t)columns * m->rows * sizeof(float);
     buffer *w = lookup(m->quants, q, qb), *scales = lookup(m->scales, s, sb);

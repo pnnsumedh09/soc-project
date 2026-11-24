@@ -1,4 +1,5 @@
 #include "soc_gemv_hal.h"
+#include "soc_repack.h"
 #include <errno.h>
 
 static int fail(int e) { errno = e; return -1; }
@@ -20,7 +21,7 @@ int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
         !j->n || j->n > SOC_GEMV_MAX_N)
         return fail(EINVAL);
     uint64_t a[] = {j->quants, j->scales, j->x, j->y};
-    uint64_t n[] = {(uint64_t)j->rows * j->nb * 32,
+    uint64_t n[] = {(uint64_t)j->rows * j->nb * SOC_WEIGHT_QUANT_BYTES,
                     (uint64_t)j->rows * j->nb * 2,
                     (uint64_t)j->n * j->nb * 34,
                     (uint64_t)j->n * j->rows * 4};

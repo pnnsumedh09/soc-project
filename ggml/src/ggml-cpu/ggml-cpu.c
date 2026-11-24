@@ -17,6 +17,12 @@
 #include "tiled/tiled.h"
 
 #ifdef GGML_SOC_GEMV
+#if SOC_GEMM_WEIGHT_BITS == 4
+#define GGML_SOC_GEMM_WEIGHT_TYPE GGML_TYPE_Q4_0
+#else
+#define GGML_SOC_GEMM_WEIGHT_TYPE GGML_TYPE_Q8_0
+#endif
+
 #include "soc_gemv.h"   // ECE382M SoC project: GEMV offload (soc/sw/gemv)
 #endif
 
@@ -1275,7 +1281,8 @@ static bool ggml_soc_gemv_eligible(const struct ggml_compute_params * params,
                                    const struct ggml_tensor * src1,
                                    const struct ggml_tensor * dst) {
     return !params->use_ref &&
-           src0->type == GGML_TYPE_Q8_0 && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32 &&
+           src0->type == GGML_SOC_GEMM_WEIGHT_TYPE &&
+           src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32 &&
            src1->ne[1] > 0 && src1->ne[1] <= SOC_GEMM_MAX_COLUMNS &&
            src1->ne[2] == 1 && src1->ne[3] == 1 &&
            src0->ne[2] == 1 && src0->ne[3] == 1 &&
@@ -1425,9 +1432,15 @@ UseGgmlGemm1:;
     // src1 is now quantized to Q8_0 blocks in params->wdata (all threads done).
     if (ggml_soc_gemv_eligible(params, src0, src1, dst)) {
         if (ith == 0) {
+#if SOC_GEMM_WEIGHT_BITS == 4
+            soc_gemm_q4_0(src0->data, src0->nb[1], src0->ne[1], src0->ne[0],
+                          src1->ne[1], params->wdata, (float *) dst->data,
+                          (soc_vec_dot_fn) type_traits_cpu[GGML_TYPE_Q4_0].vec_dot);
+#else
             soc_gemm_q8_0(src0->data, src0->nb[1], src0->ne[1], src0->ne[0],
                           src1->ne[1], params->wdata, (float *) dst->data,
                           (soc_vec_dot_fn) type_traits_cpu[GGML_TYPE_Q8_0].vec_dot);
+#endif
         }
         ggml_barrier(params->threadpool);
         return;
