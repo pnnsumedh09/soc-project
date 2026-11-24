@@ -146,65 +146,118 @@ void soc_gemm_hw(const soc_gemm_word *w_quants,
         return;
     }
 
-    // One activation column fits on chip. This first baseline intentionally
-    // repeats the verified GEMV order for every N column. Weight tiling/reuse is
-    // the next optimization after C simulation and synthesis are trustworthy.
-    soc_gemm_word x_words[2 * SOC_GEMM_HW_MAX_NB];
-    float x_scales[SOC_GEMM_HW_MAX_NB];
+    // Cache eight activation columns. The lane dimension is fully partitioned
+    // so each cached column has an independent memory bank and accumulator.
+    soc_gemm_word x_words[SOC_GEMM_HW_N_TILE][2 * SOC_GEMM_HW_MAX_NB];
+    float x_scales[SOC_GEMM_HW_N_TILE][SOC_GEMM_HW_MAX_NB];
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS ARRAY_PARTITION variable=x_words complete dim=1
+#pragma HLS ARRAY_PARTITION variable=x_scales complete dim=1
+#endif
 
-columns:
-    for (uint32_t col = 0; col < n; ++col) {
-        uint32_t x_column_base = col * nb * 34u;
-    load_x:
-        for (uint32_t b = 0; b < nb; ++b) {
-            uint32_t base = x_column_base + b * 34u;
-            uint16_t scale = (uint16_t)x_native[base] |
-                             ((uint16_t)x_native[base + 1] << 8);
-            if (!finite_half(scale)) {
-                status = SOC_GEMM_HW_BAD_X_SCALE;
-                return;
-            }
-        x_scales[b] = dot_half_to_float(scale);
-            for (uint32_t half = 0; half < 2; ++half) {
-                soc_gemm_word word = 0;
-                for (uint32_t j = 0; j < 16; ++j) {
-                    word |= soc_gemm_word(x_native[base + 2 + half * 16 + j])
-                            << (8 * j);
+column_tiles:
+    for (uint32_t col_base = 0; col_base < n;
+         col_base += SOC_GEMM_HW_N_TILE) {
+        uint32_t active_columns = n - col_base;
+        if (active_columns > SOC_GEMM_HW_N_TILE) {
+            active_columns = SOC_GEMM_HW_N_TILE;
+        }
+
+    load_tile_columns:
+        for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
+            if (lane < active_columns) {
+                uint32_t x_column_base = (col_base + lane) * nb * 34u;
+            load_tile_blocks:
+                for (uint32_t b = 0; b < nb; ++b) {
+                    uint32_t base = x_column_base + b * 34u;
+                    uint16_t scale = (uint16_t)x_native[base] |
+                                     ((uint16_t)x_native[base + 1] << 8);
+                    if (!finite_half(scale)) {
+                        status = SOC_GEMM_HW_BAD_X_SCALE;
+                        return;
+                    }
+                    x_scales[lane][b] = dot_half_to_float(scale);
+                    for (uint32_t half = 0; half < 2; ++half) {
+                        soc_gemm_word word = 0;
+                        // Keep this loop serial. Vitis HLS 2022.2 crashes when
+                        // unrolling the loop-carried 128-bit OR reduction.
+                        for (uint32_t j = 0; j < 16; ++j) {
+                            word |= soc_gemm_word(
+                                        x_native[base + 2 + half * 16 + j])
+                                    << (8 * j);
+                        }
+                        x_words[lane][2 * b + half] = word;
+                    }
                 }
-                x_words[2 * b + half] = word;
             }
         }
 
-    rows:
+    tile_rows:
         for (uint32_t row = 0; row < m; ++row) {
             uint32_t block_base = row * nb;
-            float sumf = 0.0f;
-
-        blocks:
-            for (uint32_t b = 0; b < nb; ++b) {
+            float accum[SOC_GEMM_HW_N_TILE];
 #ifndef SOC_GEMM_HW_HOST
-#pragma HLS PIPELINE II=1
+#pragma HLS ARRAY_PARTITION variable=accum complete
 #endif
-#if SOC_GEMM_WEIGHT_BITS == 8
-                uint32_t word = 2 * (block_base + b);
-                int32_t sumi = dot_beat(w_quants[word], x_words[2 * b]) +
-                               dot_beat(w_quants[word + 1], x_words[2 * b + 1]);
-#else
-                int32_t sumi = dot_q4_0_block(w_quants[block_base + b],
-                                              x_words[2 * b],
-                                              x_words[2 * b + 1]);
+        init_accumulators:
+            for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS UNROLL
 #endif
+                accum[lane] = 0.0f;
+            }
+
+        tile_blocks:
+            for (uint32_t b = 0; b < nb; ++b) {
                 uint16_t w_scale_bits = w_scales[block_base + b];
                 if (!finite_half(w_scale_bits)) {
                     status = SOC_GEMM_HW_BAD_W_SCALE;
                     return;
                 }
-                float scale_product = dot_half_to_float(w_scale_bits) * x_scales[b];
-                float term = (float)sumi * scale_product;
-                // Preserve quantization-block order and disable contraction in Tcl.
-                sumf = sumf + term;
+                float w_scale = dot_half_to_float(w_scale_bits);
+#if SOC_GEMM_WEIGHT_BITS == 8
+                uint32_t word = 2 * (block_base + b);
+                soc_gemm_word w0 = w_quants[word];
+                soc_gemm_word w1 = w_quants[word + 1];
+#else
+                soc_gemm_word w0 = w_quants[block_base + b];
+#endif
+
+            tile_lanes:
+                for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+                    if (lane < active_columns) {
+#if SOC_GEMM_WEIGHT_BITS == 8
+                        int32_t sumi =
+                            dot_beat(w0, x_words[lane][2 * b]) +
+                            dot_beat(w1, x_words[lane][2 * b + 1]);
+#else
+                        int32_t sumi =
+                            dot_q4_0_block(w0,
+                                           x_words[lane][2 * b],
+                                           x_words[lane][2 * b + 1]);
+#endif
+                        float scale_product =
+                            w_scale * x_scales[lane][b];
+                        float term = (float)sumi * scale_product;
+                        // Every lane still accumulates blocks in ascending
+                        // order, preserving the reference FP32 result.
+                        accum[lane] = accum[lane] + term;
+                    }
+                }
             }
-            y[col * m + row] = sumf;
+
+        write_tile:
+            for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+                if (lane < active_columns) {
+                    y[(col_base + lane) * m + row] = accum[lane];
+                }
+            }
         }
     }
 }
