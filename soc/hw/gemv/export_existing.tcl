@@ -11,8 +11,8 @@ set part [setting SOC_GEMV_HW_PART xczu3eg-sbva484-1-e]
 if {$mhz ni {100 150 200} || $burst ni {1 4 16 64 256} ||
     $part ni {xczu3eg-sbva484-1-e xczu3eg-sbva484-1-i} ||
     ![string is integer -strict $outstanding] || $outstanding < 1 || $outstanding > 32 ||
-    [setting SOC_GEMV_HW_ROW_INTERLEAVE 1] ne "1"} { error "Select a valid Q4_K sequential configuration" }
-set tag q4k_f${mhz}_b${burst}_o${outstanding}
+    [setting SOC_GEMV_HW_ROW_INTERLEAVE 1] ne "1"} { error "Select a valid Q4_0 sequential configuration" }
+set tag q4_0_f${mhz}_b${burst}_o${outstanding}
 set work [file normalize "$here/../hls_work/gemv/$tag"]
 set report "$work/solution/syn/report/soc_gemv_hw_csynth"
 foreach suffix {xml rpt} {
@@ -21,8 +21,8 @@ foreach suffix {xml rpt} {
 set f [open "$report.xml" r]; set xml [read $f]; close $f
 set f [open "$report.rpt" r]; set rpt [read $f]; close $f
 if {![regexp {<Part>([^<]+)</Part>} $xml -> actual] || $actual ne $part ||
-    [string first "read_quant_words" $rpt] < 0} {
-    error "Existing report does not match the requested Q4_K target"
+    [string first "dot_values" $rpt] < 0} {
+    error "Existing report does not match the requested Q4_0 target"
 }
 if {![regexp {<TargetClockPeriod>([^<]+)</TargetClockPeriod>} $xml -> period] ||
     abs($period - 1000.0 / $mhz) > 0.02} { error "Existing synthesis clock differs from requested MHz" }

@@ -37,11 +37,11 @@ typedef struct soc_gemv_backend {
     int  (*alloc)(size_t bytes, void **cpu, uint64_t *dev_addr, void **handle);
     void (*free)(void *handle);
 
-    /* y[0..m->rows) = W x. q_dev / metadata_dev are the device addresses of
-     * m->quants / m->metadata. x_q8_k holds m->nb native Q8_K blocks.
+    /* y[0..m->rows) = W x. q_dev / scale_dev are the device addresses of
+     * m->quants / m->scales. x_q8_0 holds m->nb native Q8_0 blocks.
      * Returns 0 on success; nonzero makes the caller fall back to the CPU. */
-    int  (*run)(const soc_q4kr_mat *m, uint64_t q_dev, uint64_t metadata_dev,
-                const void *x_q8_k, float *y);
+    int  (*run)(const soc_q4r_mat *m, uint64_t q_dev, uint64_t scale_dev,
+                const void *x_q8_0, float *y);
 } soc_gemv_backend;
 
 extern const soc_gemv_backend soc_gemv_backend_emul;

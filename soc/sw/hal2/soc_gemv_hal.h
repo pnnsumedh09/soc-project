@@ -9,7 +9,7 @@ enum {
     SOC_GEMV_REG_CTRL = 0x00,
     SOC_GEMV_REG_GIE = 0x04,
     SOC_GEMV_REG_W = 0x10,
-    SOC_GEMV_REG_METADATA = 0x20,
+    SOC_GEMV_REG_S = 0x20,
     SOC_GEMV_REG_X = 0x30,
     SOC_GEMV_REG_Y = 0x40,
     SOC_GEMV_REG_ROWS = 0x50,
@@ -19,7 +19,7 @@ enum {
     SOC_GEMV_REG_BYTES = 0x10000,
     SOC_GEMV_START = 1, SOC_GEMV_DONE = 2, SOC_GEMV_IDLE = 4,
     SOC_GEMV_AUTO_RESTART = 128,
-    SOC_GEMV_MAX_ROWS = SOC_Q4_K_MAX_ROWS, SOC_GEMV_MAX_NB = SOC_Q4_K_MAX_NB
+    SOC_GEMV_MAX_ROWS = SOC_Q4_0_MAX_ROWS, SOC_GEMV_MAX_NB = SOC_Q4_0_MAX_NB
 };
 
 typedef struct {
@@ -38,7 +38,7 @@ typedef struct {
 } soc_gemv_hal;
 
 typedef struct {
-    uint64_t quants, metadata, x, y;
+    uint64_t quants, scales, x, y;
     uint32_t rows, nb;
 } soc_gemv_job;
 

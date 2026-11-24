@@ -2,8 +2,8 @@
  * soc_gemv.h - GEMV offload entry point called from llama.cpp (plan task P2.2)
  *
  * The hook in ggml/src/ggml-cpu/ggml-cpu.c (ggml_compute_forward_mul_mat)
- * calls soc_gemv_q4_k() for every decode matrix-vector product whose weights
- * are a Q4_K model tensor. This layer:
+ * calls soc_gemv_q4_0() for every decode matrix-vector product whose weights
+ * are a Q4_0 model tensor. This layer:
  *   - keeps a cache of repacked weight matrices, keyed by the weight pointer
  *     (repack happens on first use; the HAL/backend provides the memory),
  *   - sends the work to the selected backend (FPGA by default in an FPGA-enabled build),
@@ -40,17 +40,17 @@ typedef void (*soc_vec_dot_fn)(int n, float *s, size_t bs, const void *x, size_t
 int soc_gemv_enabled(void);
 
 /*
- * y = W x for one Q4_K weight matrix. Always produces y (offloaded, or on the
+ * y = W x for one Q4_0 weight matrix. Always produces y (offloaded, or on the
  * CPU via ref_vec_dot if anything fails).
- *   w            first byte of row 0 (tensor->data), native Q4_K blocks
+ *   w            first byte of row 0 (tensor->data), native Q4_0 blocks
  *   w_row_stride bytes between rows (tensor->nb[1])
  *   rows         output rows (tensor->ne[1])
- *   n            input length (tensor->ne[0]), multiple of 256
- *   x            n/256 native Q8_K blocks (the quantized activation row)
+ *   n            input length (tensor->ne[0]), multiple of 32
+ *   x            n/32 native Q8_0 blocks (the quantized activation row)
  *   y            rows floats
- *   ref_vec_dot  llama.cpp's Q4_K x Q8_K vec_dot; may be NULL
+ *   ref_vec_dot  llama.cpp's Q4_0 x Q8_0 vec_dot; may be NULL
  */
-void soc_gemv_q4_k(const void *w, size_t w_row_stride, int64_t rows, int64_t n,
+void soc_gemv_q4_0(const void *w, size_t w_row_stride, int64_t rows, int64_t n,
                    const void *x, float *y, soc_vec_dot_fn ref_vec_dot);
 
 typedef struct soc_gemv_stats {

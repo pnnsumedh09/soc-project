@@ -11,7 +11,7 @@ typedef ap_uint<128> soc_gemv_word;
 #endif
 
 enum {
-    SOC_GEMV_HW_MAX_NB      = 19,
+    SOC_GEMV_HW_MAX_NB      = 152,
     SOC_GEMV_HW_MAX_ROWS    = 151936,
     SOC_GEMV_HW_OK          = 0,
     SOC_GEMV_HW_BAD_SHAPE   = 1,
@@ -20,7 +20,7 @@ enum {
 };
 
 void soc_gemv_hw(const soc_gemv_word * w_quants,
-                 const soc_gemv_word * w_metadata,
+                 const uint16_t *      w_scales,
                  const uint8_t *       x_native,
                  float *               y,
                  uint32_t              rows,

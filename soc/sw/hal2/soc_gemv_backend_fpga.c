@@ -174,17 +174,17 @@ static void fpga_free(void *handle) {
     /* Quarantine the whole arena after unknown completion: no reuse. */
     if (g.ready && !g.hal.poisoned) soc_gemv_arena_free(&g.arena, handle);
 }
-static int fpga_run(const soc_q4kr_mat *m, uint64_t q, uint64_t metadata, const void *x, float *y) {
+static int fpga_run(const soc_q4r_mat *m, uint64_t q, uint64_t scales, const void *x, float *y) {
     if (!g.ready || g.hal.poisoned) return fail(EIO);
     if (!m || !x || !y || !m->rows || m->rows > SOC_GEMV_MAX_ROWS ||
         !m->nb || m->nb > SOC_GEMV_MAX_NB ||
         !soc_gemv_arena_contains(&g.arena, m->quants, q,
-                                 (size_t)m->rows * m->nb * SOC_Q4_K_QUANT_BYTES) ||
-        !soc_gemv_arena_contains(&g.arena, m->metadata, metadata,
-                                 (size_t)m->rows * m->nb * SOC_Q4_K_META_BYTES))
+                                 (size_t)m->rows * m->nb * SOC_Q4_0_QUANT_BYTES) ||
+        !soc_gemv_arena_contains(&g.arena, m->scales, scales,
+                                 (size_t)m->rows * m->nb * SOC_Q4_0_SCALE_BYTES))
         return fail(EINVAL);
-    memcpy(g.x, x, (size_t)m->nb * SOC_Q8_K_BLOCK_BYTES);
-    soc_gemv_job j = {q, metadata, g.xd, g.yd, m->rows, m->nb};
+    memcpy(g.x, x, (size_t)m->nb * SOC_Q8_0_BLOCK_BYTES);
+    soc_gemv_job j = {q, scales, g.xd, g.yd, m->rows, m->nb};
     uint32_t status;
     if (marker('1')) { g.hal.poisoned = 1; return -1; }
     int rc = soc_gemv_hal_run(&g.hal, &j, g.timeout, &status);

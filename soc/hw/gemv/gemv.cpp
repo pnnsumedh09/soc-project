@@ -1,13 +1,13 @@
 #include "gemv.h"
 
 enum {
-    QK_K             = 256,
-    Q4_K_QUANT_WORDS = 8,
-    Q8_K_BLOCK_BYTES = 292,
+    QK4_0            = 32,
+    Q4_0_QUANT_BYTES = 16,
+    Q8_0_BLOCK_BYTES = 34,
 };
 
-static bool finite_half(uint16_t h) {
-    return (h & 0x7c00u) != 0x7c00u;
+static bool finite_half(uint16_t value) {
+    return (value & 0x7c00u) != 0x7c00u;
 }
 
 static float bits_to_float(uint32_t bits) {
@@ -32,25 +32,25 @@ static float half_to_float(uint16_t h) {
     } else if (!man) {
         out = sign;
     } else {
-        uint32_t w = man << 6;
-        uint32_t n = 0;
-        if (!(w & 0xff00u)) {
-            n += 8;
-            w <<= 8;
+        uint32_t word  = man << 6;
+        uint32_t shift = 0;
+        if (!(word & 0xff00u)) {
+            shift += 8;
+            word <<= 8;
         }
-        if (!(w & 0xf000u)) {
-            n += 4;
-            w <<= 4;
+        if (!(word & 0xf000u)) {
+            shift += 4;
+            word <<= 4;
         }
-        if (!(w & 0xc000u)) {
-            n += 2;
-            w <<= 2;
+        if (!(word & 0xc000u)) {
+            shift += 2;
+            word <<= 2;
         }
-        if (!(w & 0x8000u)) {
-            n += 1;
-            w <<= 1;
+        if (!(word & 0x8000u)) {
+            shift += 1;
+            word <<= 1;
         }
-        out = sign | ((112 - n) << 23) | (((w >> 5) & 0x3ffu) << 13);
+        out = sign | ((112 - shift) << 23) | (((word >> 5) & 0x3ffu) << 13);
     }
     return bits_to_float(out);
 }
@@ -62,21 +62,8 @@ static uint8_t word_byte(soc_gemv_word word, unsigned index) {
     return (uint8_t) (word >> (8 * index));
 }
 
-static void scale_min(unsigned group, const uint8_t packed[12], uint8_t & scale, uint8_t & min) {
-#ifndef SOC_GEMV_HW_HOST
-#    pragma HLS INLINE
-#endif
-    if (group < 4) {
-        scale = packed[group] & 63;
-        min   = packed[group + 4] & 63;
-    } else {
-        scale = (packed[group + 4] & 0x0f) | ((packed[group - 4] >> 6) << 4);
-        min   = (packed[group + 4] >> 4) | ((packed[group] >> 6) << 4);
-    }
-}
-
 void soc_gemv_hw(const soc_gemv_word * w_quants,
-                 const soc_gemv_word * w_metadata,
+                 const uint16_t *      w_scales,
                  const uint8_t *       x_native,
                  float *               y,
                  uint32_t              rows,
@@ -85,7 +72,7 @@ void soc_gemv_hw(const soc_gemv_word * w_quants,
 #ifndef SOC_GEMV_HW_HOST
 #    pragma HLS INTERFACE s_axilite port = return bundle = control
 #    pragma HLS INTERFACE s_axilite port = w_quants bundle = control offset = 0x10
-#    pragma HLS INTERFACE s_axilite port = w_metadata bundle = control offset = 0x20
+#    pragma HLS INTERFACE s_axilite port = w_scales bundle = control offset = 0x20
 #    pragma HLS INTERFACE s_axilite port = x_native bundle = control offset = 0x30
 #    pragma HLS INTERFACE s_axilite port = y bundle = control offset = 0x40
 #    pragma HLS INTERFACE s_axilite port = rows bundle = control offset = 0x50
@@ -101,120 +88,66 @@ void soc_gemv_hw(const soc_gemv_word * w_quants,
         return;
     }
 
-    int8_t  x_quants[SOC_GEMV_HW_MAX_NB][QK_K];
-    int16_t x_bsums[SOC_GEMV_HW_MAX_NB][QK_K / 16];
-    float   x_scales[SOC_GEMV_HW_MAX_NB];
+    int8_t   x_quants[SOC_GEMV_HW_MAX_NB][QK4_0];
+    uint16_t x_scale_bits[SOC_GEMV_HW_MAX_NB];
 #ifndef SOC_GEMV_HW_HOST
 #    pragma HLS BIND_STORAGE variable = x_quants type = ram_2p impl = bram
-#    pragma HLS BIND_STORAGE variable = x_bsums type = ram_1p impl = bram
 #endif
+#ifndef SOC_GEMV_HW_HOST
 load_x_blocks:
+#endif
     for (uint32_t block = 0; block < nb; ++block) {
-        uint32_t base       = block * Q8_K_BLOCK_BYTES;
-        uint32_t scale_bits = (uint32_t) x_native[base] | (uint32_t) x_native[base + 1] << 8 |
-                              (uint32_t) x_native[base + 2] << 16 | (uint32_t) x_native[base + 3] << 24;
-        float scale = bits_to_float(scale_bits);
-        if (!(scale == scale) || scale > 3.402823466e+38F || scale < -3.402823466e+38F) {
+        uint32_t base  = block * Q8_0_BLOCK_BYTES;
+        uint16_t scale = (uint16_t) x_native[base] | (uint16_t) x_native[base + 1] << 8;
+        if (!finite_half(scale)) {
             status = SOC_GEMV_HW_BAD_X_SCALE;
             return;
         }
-        x_scales[block] = scale;
+        x_scale_bits[block] = scale;
+#ifndef SOC_GEMV_HW_HOST
 load_x_quants:
-        for (unsigned i = 0; i < QK_K; ++i) {
+#endif
+        for (unsigned i = 0; i < QK4_0; ++i) {
 #ifndef SOC_GEMV_HW_HOST
 #    pragma HLS PIPELINE II = 1
 #endif
-            uint8_t value      = x_native[base + 4 + i];
+            uint8_t value      = x_native[base + 2 + i];
             x_quants[block][i] = value < 128 ? (int8_t) value : (int16_t) value - 256;
-        }
-load_x_bsums:
-        for (unsigned i = 0; i < QK_K / 16; ++i) {
-#ifndef SOC_GEMV_HW_HOST
-#    pragma HLS PIPELINE II = 1
-#endif
-            uint32_t offset   = base + 4 + QK_K + 2 * i;
-            x_bsums[block][i] = (int16_t) ((uint16_t) x_native[offset] | (uint16_t) x_native[offset + 1] << 8);
         }
     }
 
-rows_loop:
-    for (uint32_t row = 0; row < rows; ++row) {
-        float sums[8] = { 0 };
-        float sumf    = 0.0f;
 #ifndef SOC_GEMV_HW_HOST
-#    pragma HLS ARRAY_PARTITION variable = sums complete
+rows_loop:
 #endif
+    for (uint32_t row = 0; row < rows; ++row) {
+        float sum = 0.0f;
+#ifndef SOC_GEMV_HW_HOST
 blocks_loop:
+#endif
         for (uint32_t block = 0; block < nb; ++block) {
-            uint32_t      matrix_block = row * nb + block;
-            soc_gemv_word metadata     = w_metadata[matrix_block];
-            uint16_t      d_bits       = (uint16_t) word_byte(metadata, 0) | (uint16_t) word_byte(metadata, 1) << 8;
-            uint16_t      dmin_bits    = (uint16_t) word_byte(metadata, 2) | (uint16_t) word_byte(metadata, 3) << 8;
-            if (!finite_half(d_bits) || !finite_half(dmin_bits)) {
+            uint32_t matrix_block = row * nb + block;
+            uint16_t weight_scale = w_scales[matrix_block];
+            if (!finite_half(weight_scale)) {
                 status = SOC_GEMV_HW_BAD_W_SCALE;
                 return;
             }
-            uint8_t packed_scales[12];
+            soc_gemv_word quant_word = w_quants[matrix_block];
+            int32_t       sum_low    = 0;
+            int32_t       sum_high   = 0;
 #ifndef SOC_GEMV_HW_HOST
-#    pragma HLS ARRAY_PARTITION variable = packed_scales complete
+dot_values:
 #endif
-            for (unsigned i = 0; i < 12; ++i) {
-#ifndef SOC_GEMV_HW_HOST
-#    pragma HLS UNROLL
-#endif
-                packed_scales[i] = word_byte(metadata, i + 4);
-            }
-            soc_gemv_word qwords[Q4_K_QUANT_WORDS];
-#ifndef SOC_GEMV_HW_HOST
-#    pragma HLS ARRAY_PARTITION variable = qwords complete
-#endif
-read_quant_words:
-            for (unsigned word = 0; word < Q4_K_QUANT_WORDS; ++word) {
+            for (unsigned i = 0; i < Q4_0_QUANT_BYTES; ++i) {
 #ifndef SOC_GEMV_HW_HOST
 #    pragma HLS PIPELINE II = 1
 #endif
-                qwords[word] = w_quants[matrix_block * Q4_K_QUANT_WORDS + word];
+                uint8_t packed = word_byte(quant_word, i);
+                sum_low += ((int32_t) (packed & 0x0f) - 8) * x_quants[block][i];
+                sum_high += ((int32_t) (packed >> 4) - 8) * x_quants[block][i + Q4_0_QUANT_BYTES];
             }
-            int32_t lanes[8] = { 0 };
-            int32_t min_sum  = 0;
-#ifndef SOC_GEMV_HW_HOST
-#    pragma HLS ARRAY_PARTITION variable = lanes complete
-#endif
-groups_loop:
-            for (unsigned group = 0; group < 8; ++group) {
-                uint8_t scale, min;
-                scale_min(group, packed_scales, scale, min);
-                unsigned chunk = group / 2;
-group_values:
-                for (unsigned i = 0; i < 32; ++i) {
-#ifndef SOC_GEMV_HW_HOST
-#    pragma HLS PIPELINE II = 1
-#endif
-                    soc_gemv_word word   = qwords[chunk * 2 + i / 16];
-                    uint8_t       packed = word_byte(word, i & 15);
-                    int32_t       weight = group & 1 ? packed >> 4 : packed & 0x0f;
-                    lanes[i & 7] += (int32_t) scale * weight * x_quants[block][group * 32 + i];
-                }
-                min_sum += min * (x_bsums[block][2 * group] + x_bsums[block][2 * group + 1]);
-            }
-            float d = half_to_float(d_bits) * x_scales[block];
-accumulate_lanes:
-            for (unsigned lane = 0; lane < 8; ++lane) {
-#ifndef SOC_GEMV_HW_HOST
-#    pragma HLS UNROLL
-#endif
-                sums[lane] += d * lanes[lane];
-            }
-            float dmin = half_to_float(dmin_bits) * x_scales[block];
-            sumf -= dmin * min_sum;
+            int32_t dot = sum_low + sum_high;
+            sum += (float) dot * half_to_float(weight_scale) * half_to_float(x_scale_bits[block]);
         }
-finish_lanes:
-        for (unsigned lane = 0; lane < 8; ++lane) {
-#ifndef SOC_GEMV_HW_HOST
-#    pragma HLS PIPELINE II = 1
-#endif
-            sumf += sums[lane];
-        }
-        y[row] = sumf;
+        y[row] = sum;
     }
 }

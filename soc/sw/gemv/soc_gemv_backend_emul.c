@@ -2,7 +2,7 @@
  * soc_gemv_backend_emul.c - CPU emulation backend (plan task P2.3)
  *
  * Heap memory stands in for contiguous DMA memory, and run() is the golden
- * arithmetic (soc_q4kr_gemv_ref): same data layout and operation order the
+ * arithmetic (soc_q4r_gemv_ref): same data layout and operation order the
  * hardware engine must implement. Used to validate the hook, the repack and
  * the weight cache end to end before any FPGA exists.
  */
@@ -49,12 +49,12 @@ static void emul_free(void *handle)
 #endif
 }
 
-static int emul_run(const soc_q4kr_mat *m, uint64_t q_dev, uint64_t metadata_dev,
-                    const void *x_q8_k, float *y)
+static int emul_run(const soc_q4r_mat *m, uint64_t q_dev, uint64_t scale_dev,
+                    const void *x_q8_0, float *y)
 {
     (void)q_dev;
-    (void)metadata_dev;
-    soc_q4kr_gemv_ref(m, x_q8_k, y);
+    (void)scale_dev;
+    soc_q4r_gemv_ref(m, x_q8_0, y);
     return 0;
 }
 

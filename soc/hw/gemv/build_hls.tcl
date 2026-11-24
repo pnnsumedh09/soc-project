@@ -15,7 +15,7 @@ if {$mhz ni {100 150 200} || $burst ni {1 4 16 64 256} ||
     $stage ni {csim synth cosim export} || $part ni {xczu3eg-sbva484-1-e xczu3eg-sbva484-1-i}} {
     error "Use MHz=100/150/200, burst=1/4/16/64/256, outstanding=1..32, row interleave=1, stage=csim/synth/cosim/export, part=-e/-i"
 }
-set tag q4k_f${mhz}_b${burst}_o${outstanding}
+set tag q4_0_f${mhz}_b${burst}_o${outstanding}
 set work [file normalize "$here/../hls_work/gemv/$tag"]
 file mkdir [file dirname $work]
 cd [file dirname $work]
@@ -37,10 +37,10 @@ set_directive_interface -mode m_axi -offset slave -bundle weights -depth 19456 \
     -max_read_burst_length $burst -num_read_outstanding $outstanding \
     -max_write_burst_length 2 -num_write_outstanding 1 \
     -max_widen_bitwidth 128 soc_gemv_hw w_quants
-set_directive_interface -mode m_axi -offset slave -bundle metadata -depth 9728 \
+set_directive_interface -mode m_axi -offset slave -bundle scales -depth 9728 \
     -max_read_burst_length $burst -num_read_outstanding $outstanding \
     -max_write_burst_length 2 -num_write_outstanding 1 \
-    -max_widen_bitwidth 128 soc_gemv_hw w_metadata
+    -max_widen_bitwidth 128 soc_gemv_hw w_scales
 set_directive_interface -mode m_axi -offset slave -bundle activation -depth 5168 \
     -max_read_burst_length 16 -num_read_outstanding 2 \
     -max_write_burst_length 2 -num_write_outstanding 1 \
@@ -52,7 +52,7 @@ set_directive_interface -mode m_axi -offset slave -bundle output -depth 64 \
 
 if {$stage eq "csim"} {
     csim_design -clean
-    puts "Q4_K GEMV C simulation completed: $work"
+    puts "Q4_0 GEMV C simulation completed: $work"
     exit
 }
 csynth_design
@@ -62,5 +62,5 @@ if {$stage eq "cosim"} {
 if {$stage eq "export"} {
     export_design -format ip_catalog -rtl verilog -vendor soc.org -library hls -version 1.0
 }
-puts "Q4_K GEMV HLS stage $stage completed: $work"
+puts "Q4_0 GEMV HLS stage $stage completed: $work"
 exit

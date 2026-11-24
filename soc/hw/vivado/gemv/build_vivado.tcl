@@ -27,7 +27,7 @@ if {$mhz ni {100 150 200} || $burst ni {1 4 16 64 256} ||
 if {$stage ni {check bd bitstream} || $part ni {xczu3eg-sbva484-1-e xczu3eg-sbva484-1-i}} {
     error "Use SOC_GEMV_BUILD_STAGE=check/bd/bitstream and a supported SOC_GEMV_HW_PART (-e or -i)"
 }
-set tag q4k_f${mhz}_b${burst}_o${outstanding}
+set tag q4_0_f${mhz}_b${burst}_o${outstanding}
 set ip_repo [file normalize "$here/../../hls_work/gemv/$tag/solution/impl/ip"]
 if {$board_repo ne ""} {
     if {![file isdirectory $board_repo]} { error "Missing board repository: $board_repo" }
@@ -62,8 +62,8 @@ if {![file isfile $rpt]} { error "Missing text synthesis report: $rpt" }
 set stream [open $rpt r]
 set schedule [read $stream]
 close $stream
-if {[string first "read_quant_words" $schedule] < 0} {
-    error "The selected export must contain the Q4_K GEMV kernel"
+if {[string first "dot_values" $schedule] < 0} {
+    error "The selected export must contain the Q4_0 GEMV kernel"
 }
 if {$hls_part ne $part} {
     error "HLS target $hls_part differs from requested $part; resolve the actual board/course target before rebuilding"
@@ -149,7 +149,7 @@ set_property CONFIG.CONST_VAL {0} [get_bd_cells zero_0]
 
 connect_bd_intf_net [get_bd_intf_pins $ps/M_AXI_HPM0_FPD] [get_bd_intf_pins control_xbar/S00_AXI]
 connect_bd_intf_net [get_bd_intf_pins control_xbar/M00_AXI] [get_bd_intf_pins gemv_0/s_axi_control]
-foreach {port slot} {weights S00_AXI metadata S01_AXI activation S02_AXI output_r S03_AXI} {
+foreach {port slot} {weights S00_AXI scales S01_AXI activation S02_AXI output_r S03_AXI} {
     set pin [get_bd_intf_pins -quiet gemv_0/m_axi_$port]
     if {[llength $pin] != 1} { error "Missing expected HLS interface m_axi_$port; inspect exported component.xml" }
     connect_bd_intf_net $pin [get_bd_intf_pins memory_xbar/$slot]
@@ -179,7 +179,7 @@ connect_bd_net [get_bd_pins gemv_0/interrupt] [get_bd_pins $ps/pl_ps_irq0]
 assign_bd_address -offset $base -range 64K \
     -target_address_space [get_bd_addr_spaces $ps/Data] \
     [get_bd_addr_segs gemv_0/s_axi_control/Reg] -force
-foreach port {weights metadata activation output_r} {
+foreach port {weights scales activation output_r} {
     assign_bd_address -offset 0x00000000 -range 2G \
         -target_address_space [get_bd_addr_spaces gemv_0/Data_m_axi_$port] \
         [get_bd_addr_segs $ps/SAXIGP2/HP0_DDR_LOW] -force
