@@ -9,6 +9,17 @@
 static uint32_t rng_state = 0x12345678u;
 static int failures = 0;
 
+// Vitis co-simulation copies the complete depth declared for every m_axi
+// pointer, even when a particular test shape uses fewer elements. Keep these
+// values synchronized with build_hls.tcl so the instrumented C testbench never
+// reads or writes beyond a host allocation.
+enum {
+    TB_WEIGHTS_DEPTH = 4864,
+    TB_SCALES_DEPTH = 2432,
+    TB_ACTIVATION_DEPTH = 41344,
+    TB_OUTPUT_DEPTH = 128,
+};
+
 static uint32_t random_u32() {
     rng_state ^= rng_state << 13;
     rng_state ^= rng_state >> 17;
@@ -82,14 +93,20 @@ static void run_shape(uint32_t m, uint32_t nb, uint32_t n) {
     };
     const float canary = -9876.5f;
     size_t blocks = (size_t)m * nb;
-    std::vector<soc_gemm_word> w_quants(blocks * 2);
-    std::vector<uint16_t> w_scales(blocks);
+    std::vector<soc_gemm_word> w_quants(
+        std::max<size_t>(blocks * 2, TB_WEIGHTS_DEPTH));
+    std::vector<uint16_t> w_scales(
+        std::max<size_t>(blocks, TB_SCALES_DEPTH));
     // Q8_0 stores raw signed bytes. Q4_0 stores decoded unsigned nibbles here;
     // pack_q4_0 applies the GGML low-half/high-half nibble layout.
     std::vector<uint8_t> w_values(blocks * 32);
-    std::vector<uint8_t> x_native((size_t)n * nb * 34);
+    std::vector<uint8_t> x_native(
+        std::max<size_t>((size_t)n * nb * 34, TB_ACTIVATION_DEPTH));
     std::vector<float> expected((size_t)n * m);
-    std::vector<float> output((size_t)n * m + 2, canary);
+    // output.data() + 1 is passed to the DUT, so reserve the declared depth
+    // between the two canaries.
+    std::vector<float> output(
+        std::max<size_t>((size_t)n * m, TB_OUTPUT_DEPTH) + 2, canary);
 
     for (size_t block = 0; block < blocks; ++block) {
         w_scales[block] = scales[random_u32() %
@@ -174,10 +191,10 @@ static void run_shape(uint32_t m, uint32_t nb, uint32_t n) {
 }
 
 static void bad_shapes() {
-    std::vector<soc_gemm_word> w(2, 0);
-    std::vector<uint16_t> s(1, 0x3c00);
-    std::vector<uint8_t> x(34, 0);
-    std::vector<float> y(1, 123.0f);
+    std::vector<soc_gemm_word> w(TB_WEIGHTS_DEPTH, 0);
+    std::vector<uint16_t> s(TB_SCALES_DEPTH, 0x3c00);
+    std::vector<uint8_t> x(TB_ACTIVATION_DEPTH, 0);
+    std::vector<float> y(TB_OUTPUT_DEPTH, 123.0f);
     uint32_t status = 0;
     soc_gemm_hw(w.data(), s.data(), x.data(), y.data(),
                 1, 0, 1, status);

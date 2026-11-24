@@ -22,6 +22,7 @@ enum {
     SOC_GEMM_HW_MAX_NB = 152,
     SOC_GEMM_HW_MAX_M = 151936,
     SOC_GEMM_HW_N_TILE = 8,
+    SOC_GEMM_HW_PREFETCH_ROWS = 16,
     // Provisional until the benchmark shape logger gives the real maximum N.
     SOC_GEMM_HW_MAX_N = 4096,
     SOC_GEMM_HW_OK = 0,
