@@ -35,3 +35,21 @@ To reproduce:
 ```bash
 git fetch origin --tags
 git checkout ultra96-q8-gemv-golden-v1
+
+```
+
+## Q8_0 GEMM/GEMV
+
+- Branch: `gemm-compiletime-quant`
+- Tag: `ultra96-q8-gemm-n8-validated-v1`
+- Commit: `e84dc04a305a3c9e3dbe9123520ab1638914a45b`
+- Supports `N=1` GEMV and `N<=8` GEMM.
+- Uses eight-column weight reuse, DATAFLOW prefetch, four HP ports, and a
+  persistent FPGA weight cache.
+
+To reproduce:
+
+```bash
+git fetch origin --tags
+git checkout ultra96-q8-gemm-n8-validated-v1
+```
