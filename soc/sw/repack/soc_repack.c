@@ -1,3 +1,7 @@
+#ifndef _WIN32
+#    define _POSIX_C_SOURCE 200112L
+#endif
+
 #include "soc_repack.h"
 
 #include <errno.h>
@@ -20,7 +24,11 @@ static void * aligned_memory_alloc(size_t bytes) {
 #ifdef _WIN32
     return _aligned_malloc(bytes, SOC_REPACK_ALIGN);
 #else
-    return aligned_alloc(SOC_REPACK_ALIGN, bytes);
+    void * memory = NULL;
+    if (posix_memalign(&memory, SOC_REPACK_ALIGN, bytes) != 0) {
+        return NULL;
+    }
+    return memory;
 #endif
 }
 

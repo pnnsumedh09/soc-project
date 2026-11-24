@@ -25,7 +25,7 @@ set includes "-I$soc/sw/repack"
 set flags "-std=c++11 -ffp-contract=off $includes"
 add_files "$here/gemv.cpp" -cflags $flags
 add_files -tb "$here/tb.cpp" -cflags $flags
-add_files -tb "$soc/sw/repack/soc_repack.c" -cflags "-std=c11 -ffp-contract=off $includes"
+add_files -tb "$here/tb_repack.cpp" -cflags $flags
 open_solution -reset solution -flow_target vivado
 set_part $part
 create_clock -period [expr {1000.0 / $mhz}] -name default
