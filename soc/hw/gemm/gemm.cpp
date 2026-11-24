@@ -165,14 +165,9 @@ columns:
                 return;
             }
         x_scales[b] = dot_half_to_float(scale);
-        pack_x_words:
             for (uint32_t half = 0; half < 2; ++half) {
                 soc_gemm_word word = 0;
-            pack_x_bytes:
                 for (uint32_t j = 0; j < 16; ++j) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS UNROLL
-#endif
                     word |= soc_gemm_word(x_native[base + 2 + half * 16 + j])
                             << (8 * j);
                 }
