@@ -37,12 +37,23 @@ static void emul_free(void *handle)
     free(handle);
 }
 
+static int emul_sync_to_device(void *handle, size_t bytes)
+{
+    (void)handle;
+    (void)bytes;
+    return 0;
+}
+
 static int emul_run(const soc_q8r_mat *m, uint64_t q_dev, uint64_t s_dev,
-                    const void *x_q8_0, float *y)
+                    const void *x_q8_0, float *y, uint32_t columns)
 {
     (void)q_dev;
     (void)s_dev;
-    soc_q8r_gemv_ref(m, x_q8_0, y);
+    for (uint32_t col = 0; col < columns; ++col) {
+        const unsigned char *x = (const unsigned char *)x_q8_0 +
+                                 (size_t)col * m->nb * SOC_Q8_0_BLOCK_BYTES;
+        soc_q8r_gemv_ref(m, x, y + (size_t)col * m->rows);
+    }
     return 0;
 }
 
@@ -52,5 +63,6 @@ const soc_gemv_backend soc_gemv_backend_emul = {
     .shutdown = emul_shutdown,
     .alloc    = emul_alloc,
     .free     = emul_free,
+    .sync_to_device = emul_sync_to_device,
     .run      = emul_run,
 };

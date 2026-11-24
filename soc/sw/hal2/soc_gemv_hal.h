@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Matches gemv.cpp and the reviewed HLS register map. Offsets, not PS addresses. */
+/* Matches gemm.cpp and the reviewed HLS register map. Offsets, not PS addresses. */
 enum {
     SOC_GEMV_REG_CTRL = 0x00,
     SOC_GEMV_REG_GIE = 0x04,
@@ -13,12 +13,14 @@ enum {
     SOC_GEMV_REG_Y = 0x40,
     SOC_GEMV_REG_ROWS = 0x50,
     SOC_GEMV_REG_NB = 0x58,
-    SOC_GEMV_REG_STATUS = 0x60,
-    SOC_GEMV_REG_STATUS_VALID = 0x64,
+    SOC_GEMV_REG_N = 0x60,
+    SOC_GEMV_REG_STATUS = 0x68,
+    SOC_GEMV_REG_STATUS_VALID = 0x6c,
     SOC_GEMV_REG_BYTES = 0x10000,
     SOC_GEMV_START = 1, SOC_GEMV_DONE = 2, SOC_GEMV_IDLE = 4,
     SOC_GEMV_AUTO_RESTART = 128,
-    SOC_GEMV_MAX_ROWS = 151936, SOC_GEMV_MAX_NB = 152
+    SOC_GEMV_MAX_ROWS = 151936, SOC_GEMV_MAX_NB = 152,
+    SOC_GEMV_MAX_N = 4096
 };
 
 typedef struct {
@@ -38,7 +40,7 @@ typedef struct {
 
 typedef struct {
     uint64_t quants, scales, x, y;
-    uint32_t rows, nb;
+    uint32_t rows, nb, n;
 } soc_gemv_job;
 
 /* Serialized caller; returns 0, or -1 with errno. No retries after a timeout.

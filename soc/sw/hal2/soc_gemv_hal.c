@@ -16,12 +16,14 @@ int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
         return fail(EINVAL);
     *status = UINT32_MAX;
     if (h->poisoned) return fail(EIO);
-    if (!j->rows || j->rows > SOC_GEMV_MAX_ROWS || !j->nb || j->nb > SOC_GEMV_MAX_NB)
+    if (!j->rows || j->rows > SOC_GEMV_MAX_ROWS || !j->nb || j->nb > SOC_GEMV_MAX_NB ||
+        !j->n || j->n > SOC_GEMV_MAX_N)
         return fail(EINVAL);
     uint64_t a[] = {j->quants, j->scales, j->x, j->y};
     uint64_t n[] = {(uint64_t)j->rows * j->nb * 32,
-                    (uint64_t)j->rows * j->nb * 2, (uint64_t)j->nb * 34,
-                    (uint64_t)j->rows * 4};
+                    (uint64_t)j->rows * j->nb * 2,
+                    (uint64_t)j->n * j->nb * 34,
+                    (uint64_t)j->n * j->rows * 4};
     const unsigned align[] = {16, 2, 1, 4};
     for (unsigned i = 0; i < 4; ++i) {
         if (a[i] % align[i] || a[i] > UINT64_MAX - n[i]) return fail(EINVAL);
@@ -40,6 +42,7 @@ int soc_gemv_hal_run(soc_gemv_hal *h, const soc_gemv_job *j,
     address(h, SOC_GEMV_REG_Y, j->y);
     h->io.write32(h->io.ctx, SOC_GEMV_REG_ROWS, j->rows);
     h->io.write32(h->io.ctx, SOC_GEMV_REG_NB, j->nb);
+    h->io.write32(h->io.ctx, SOC_GEMV_REG_N, j->n);
     h->io.to_device(h->io.ctx);
     uint64_t start = h->io.now_ns(h->io.ctx);
     h->io.write32(h->io.ctx, SOC_GEMV_REG_CTRL, SOC_GEMV_START);

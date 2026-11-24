@@ -143,6 +143,16 @@ static void cpu_gemv(const void *w, size_t stride, uint32_t rows, uint32_t nb,
     }
 }
 
+static void cpu_gemm(const void *w, size_t stride, uint32_t rows, uint32_t nb,
+                     uint32_t columns, const void *x, float *y, soc_vec_dot_fn ref)
+{
+    for (uint32_t col = 0; col < columns; ++col) {
+        const unsigned char *xc = (const unsigned char *)x +
+                                  (size_t)col * nb * SOC_Q8_0_BLOCK_BYTES;
+        cpu_gemv(w, stride, rows, nb, xc, y + (size_t)col * rows, ref);
+    }
+}
+
 /* ------------------------------------------------------------------------- */
 /* Cache management (caller holds g_lock)                                     */
 /* ------------------------------------------------------------------------- */
@@ -179,8 +189,16 @@ static int repack_into(slot_t *s)
     uint64_t t0 = now_ns();
     int rc = soc_q8r_from_q8_0(&s->mat, s->w, s->stride);
     g_st.repack_ns += now_ns() - t0;
-    if (rc == 0)
+    if (rc == 0) {
+        size_t qb = soc_q8r_quants_bytes(s->rows, s->nb);
+        size_t sb = soc_q8r_scales_bytes(s->rows, s->nb);
+        if (g_be->sync_to_device(s->q_handle, qb) != 0 ||
+            g_be->sync_to_device(s->s_handle, sb) != 0)
+            rc = -1;
+    }
+    if (rc == 0) {
         fingerprint(s->w, s->stride, s->rows, s->nb, s->head, s->tail);
+    }
     return rc;
 }
 
@@ -245,20 +263,21 @@ static slot_t *lookup(const void *w, size_t stride, uint32_t rows, uint32_t nb)
 /* ------------------------------------------------------------------------- */
 
 static void verify(const void *w, size_t stride, uint32_t rows, uint32_t nb,
-                   const void *x, const float *y, soc_vec_dot_fn ref)
+                   uint32_t columns, const void *x, const float *y, soc_vec_dot_fn ref)
 {
-    if (g_ref_cap < rows) {
-        float *nb_buf = realloc(g_ref_buf, sizeof(float) * rows);
+    size_t outputs = (size_t)rows * columns;
+    if (g_ref_cap < outputs) {
+        float *nb_buf = realloc(g_ref_buf, sizeof(float) * outputs);
         if (!nb_buf)
             return;
         g_ref_buf = nb_buf;
-        g_ref_cap = rows;
+        g_ref_cap = outputs;
     }
-    cpu_gemv(w, stride, rows, nb, x, g_ref_buf, ref);
+    cpu_gemm(w, stride, rows, nb, columns, x, g_ref_buf, ref);
 
     double max_diff = 0.0, max_ref = 0.0;
     uint64_t exact = 0;
-    for (uint32_t r = 0; r < rows; r++) {
+    for (size_t r = 0; r < outputs; r++) {
         double d = fabs((double)y[r] - (double)g_ref_buf[r]);
         double a = fabs((double)g_ref_buf[r]);
         if (d > max_diff) max_diff = d;
@@ -269,13 +288,13 @@ static void verify(const void *w, size_t stride, uint32_t rows, uint32_t nb,
     double norm = max_ref > 0 ? max_diff / max_ref : max_diff;
 
     g_st.verified++;
-    g_st.verified_rows += rows;
+    g_st.verified_rows += outputs;
     g_st.exact_rows += exact;
     if (max_diff > g_st.max_abs_diff) g_st.max_abs_diff = max_diff;
     if (norm > g_st.max_norm_diff) {
         if (norm > 1e-3 && g_st.max_norm_diff <= 1e-3)
-            fprintf(stderr, "soc_gemv: WARNING verify: %u x %u GEMV differs by %.3g of max|y|\n",
-                    rows, nb * SOC_QK, norm);
+            fprintf(stderr, "soc_gemv: WARNING verify: %u x %u x %u GEMM differs by %.3g of max|y|\n",
+                    rows, nb * SOC_QK, columns, norm);
         g_st.max_norm_diff = norm;
     }
 }
@@ -284,20 +303,22 @@ static void verify(const void *w, size_t stride, uint32_t rows, uint32_t nb,
 /* Entry point                                                                */
 /* ------------------------------------------------------------------------- */
 
-void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n64,
-                   const void *x, float *y, soc_vec_dot_fn ref_vec_dot)
+void soc_gemm_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t k64,
+                   int64_t columns64, const void *x, float *y, soc_vec_dot_fn ref_vec_dot)
 {
     pthread_once(&g_once, init_once);
 
     int shape_ok = w && x && y && rows64 > 0 && rows64 <= (int64_t)UINT32_MAX &&
-                   n64 > 0 && n64 % SOC_QK == 0 && n64 / SOC_QK <= (int64_t)UINT32_MAX &&
-                   w_row_stride >= (size_t)(n64 / SOC_QK) * SOC_Q8_0_BLOCK_BYTES;
+                   k64 > 0 && k64 % SOC_QK == 0 && k64 / SOC_QK <= (int64_t)UINT32_MAX &&
+                   columns64 > 0 && columns64 <= SOC_GEMM_MAX_COLUMNS &&
+                   w_row_stride >= (size_t)(k64 / SOC_QK) * SOC_Q8_0_BLOCK_BYTES;
     uint32_t rows = shape_ok ? (uint32_t)rows64 : 0;
-    uint32_t nb   = shape_ok ? (uint32_t)(n64 / SOC_QK) : 0;
+    uint32_t nb   = shape_ok ? (uint32_t)(k64 / SOC_QK) : 0;
+    uint32_t columns = shape_ok ? (uint32_t)columns64 : 0;
 
     if (!shape_ok || !g_enabled) {
         if (shape_ok)
-            cpu_gemv(w, w_row_stride, rows, nb, x, y, ref_vec_dot);
+            cpu_gemm(w, w_row_stride, rows, nb, columns, x, y, ref_vec_dot);
         pthread_mutex_lock(&g_lock);
         g_st.fallback_calls++;
         pthread_mutex_unlock(&g_lock);
@@ -311,28 +332,41 @@ void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows64, int64_t n
     int rc = -1;
     if (s && s->state == SLOT_READY) {
         uint64_t t0 = now_ns();
-        rc = g_be->run(&s->mat, s->q_dev, s->s_dev, x, y);
+        rc = g_be->run(&s->mat, s->q_dev, s->s_dev, x, y, columns);
         uint64_t dt = now_ns() - t0;
         if (rc == 0) {
             g_st.calls++;
+            if (columns == 1)
+                g_st.gemv_calls++;
+            else
+                g_st.gemm_calls++;
+            if (columns > g_st.max_columns)
+                g_st.max_columns = columns;
             g_st.rows += rows;
             g_st.weight_bytes += (uint64_t)rows * nb * (SOC_QK + 2);
             g_st.backend_ns += dt;
         } else {
-            fprintf(stderr, "soc_gemv: backend run failed (%d) for %u x %u\n", rc, rows, nb * SOC_QK);
+            fprintf(stderr, "soc_gemv: backend run failed (%d) for %u x %u x %u\n",
+                    rc, rows, nb * SOC_QK, columns);
             if (g_strict)
                 abort();
         }
     }
 
     if (rc != 0) {
-        cpu_gemv(w, w_row_stride, rows, nb, x, y, ref_vec_dot);
+        cpu_gemm(w, w_row_stride, rows, nb, columns, x, y, ref_vec_dot);
         g_st.fallback_calls++;
     } else if (g_verify) {
-        verify(w, w_row_stride, rows, nb, x, y, ref_vec_dot);
+        verify(w, w_row_stride, rows, nb, columns, x, y, ref_vec_dot);
     }
 
     pthread_mutex_unlock(&g_lock);
+}
+
+void soc_gemv_q8_0(const void *w, size_t stride, int64_t rows, int64_t k,
+                   const void *x, float *y, soc_vec_dot_fn ref)
+{
+    soc_gemm_q8_0(w, stride, rows, k, 1, x, y, ref);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -353,11 +387,17 @@ void soc_gemv_print_stats(void)
     double bt = s.backend_ns * 1e-9;
     fprintf(stderr,
             "soc_gemv stats: backend=%s\n"
-            "  offloaded GEMVs   %llu (%llu rows), CPU fallbacks %llu\n"
+            "  offloaded calls   %llu: N=1 %llu, N>1 %llu, max N %u\n"
+            "  output rows       %llu, CPU fallbacks %llu\n"
             "  weights streamed  %.1f MB in %.3f s backend time (%.2f GB/s)\n"
             "  weight cache      %llu matrices, %.1f MB, repack %.3f s, stale repacks %llu\n",
             g_be ? g_be->name : "none",
-            (unsigned long long)s.calls, (unsigned long long)s.rows, (unsigned long long)s.fallback_calls,
+            (unsigned long long)s.calls,
+            (unsigned long long)s.gemv_calls,
+            (unsigned long long)s.gemm_calls,
+            s.max_columns,
+            (unsigned long long)s.rows,
+            (unsigned long long)s.fallback_calls,
             s.weight_bytes / 1e6, bt, bt > 0 ? s.weight_bytes / bt / 1e9 : 0.0,
             (unsigned long long)s.tensors, s.repack_bytes / 1e6, s.repack_ns * 1e-9,
             (unsigned long long)s.stale_repacks);
