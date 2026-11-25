@@ -9,7 +9,7 @@ continue changing after a design has been validated.
 |---|---|---|---|
 | Golden Q8_0 GEMV | `gemv-golden` | `ultra96-q8-gemv-golden-v1` | Validated |
 | Q8_0 GEMM/GEMV, N≤8 | `gemm-compiletime-quant` | `ultra96-q8-gemm-n8-validated-v1` | Ultra96-V2 validated |
-| Q4_0 GEMM/GEMV | `gemm-compiletime-quant` | Not validated/tagged | HLS/RTL and bitstream build passed; shared-engine refactor and software/board validation pending |
+| Q4_0 GEMM/GEMV | `gemm-compiletime-quant` | Not validated/tagged | Shared-engine HLS/RTL and bitstream passed; software/board validation pending |
 
 ## Development checkpoints
 
@@ -35,6 +35,26 @@ continue changing after a design has been validated.
 - Successor: replace both DATAFLOW networks with one shared dot-product,
   accumulator, FIFO, activation-storage, and output datapath. Interpret the
   eight contexts as rows for N=1 and columns for N>1.
+
+### Q4_0 shared-engine hardware candidate
+
+- Branch: `gemm-compiletime-quant`
+- Commit: `fe250ce7fb844cd5057abbf12c6458e84e376485`
+- Status: hardware candidate; software integration and Ultra96-V2 correctness
+  validation are still pending, so this checkpoint is not tagged as validated.
+- Architecture: one shared FIFO set, activation store, 32-element dot-product
+  pipeline, and eight-context accumulator bank. Contexts represent rows for
+  N=1 and columns for N>1.
+- The shared FIFOs use depth 152, equal to one maximum-width row per lane.
+- Q4_0 C simulation and RTL co-simulation passed, including N=1 and N>1 test
+  shapes. The `shared_compute_slots` loop achieved target II=1 and final II=1.
+- HLS top estimate: 144 BRAM18, 36 DSP, 13,383 FF, and 15,215 LUT.
+- The 100 MHz Ultra96-V2 implementation met timing with setup WNS 4.088 ns,
+  TNS 0, hold WHS 0.010 ns, and THS 0.
+- Vivado implementation used 51.5 Block RAM tiles, 49 DSPs, 9,679 CLB LUTs,
+  and 11,944 CLB registers.
+- Relative to the split-datapath implementation, this reduces implemented
+  Block RAM tiles by 29.5% and DSPs by 44.9%.
 
 ## Development branch index
 
