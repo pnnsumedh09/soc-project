@@ -39,22 +39,47 @@ typedef void (*soc_vec_dot_fn)(int n, float *s, size_t bs, const void *x, size_t
  * so every compute thread takes the same branch. */
 int soc_gemv_enabled(void);
 
+#define SOC_GEMM_MAX_COLUMNS 4096
+
+#ifndef SOC_GEMM_WEIGHT_BITS
+#define SOC_GEMM_WEIGHT_BITS 8
+#endif
+
 /*
- * y = W x for one Q8_0 weight matrix. Always produces y (offloaded, or on the
- * CPU via ref_vec_dot if anything fails).
+ * Y = W X for one Q8_0 weight matrix and one or more activation columns.
+ * Always produces Y (offloaded, or on the CPU if anything fails).
  *   w            first byte of row 0 (tensor->data), native Q8_0 blocks
  *   w_row_stride bytes between rows (tensor->nb[1])
  *   rows         output rows (tensor->ne[1])
- *   n            input length (tensor->ne[0]), multiple of 32
- *   x            n/32 native Q8_0 blocks (the quantized activation row)
- *   y            rows floats
+ *   k            input length (tensor->ne[0]), multiple of 32
+ *   columns      number of activation columns (tensor->ne[1])
+ *   x            columns*k/32 native Q8_0 blocks
+ *   y            columns*rows floats, column-major
  *   ref_vec_dot  llama.cpp's Q8_0 vec_dot (fallback and verification); may be NULL
  */
+#if SOC_GEMM_WEIGHT_BITS == 4
+void soc_gemm_q4_0(const void *w, size_t w_row_stride, int64_t rows, int64_t k,
+                   int64_t columns, const void *x, float *y,
+                   soc_vec_dot_fn ref_vec_dot);
+void soc_gemv_q4_0(const void *w, size_t w_row_stride, int64_t rows, int64_t n,
+                   const void *x, float *y, soc_vec_dot_fn ref_vec_dot);
+#elif SOC_GEMM_WEIGHT_BITS == 8
+void soc_gemm_q8_0(const void *w, size_t w_row_stride, int64_t rows, int64_t k,
+                   int64_t columns, const void *x, float *y,
+                   soc_vec_dot_fn ref_vec_dot);
+
+/* Compatibility entry point. A GEMV is the N=1 case of GEMM. */
 void soc_gemv_q8_0(const void *w, size_t w_row_stride, int64_t rows, int64_t n,
                    const void *x, float *y, soc_vec_dot_fn ref_vec_dot);
+#else
+#error "SOC_GEMM_WEIGHT_BITS must be 4 or 8"
+#endif
 
 typedef struct soc_gemv_stats {
-    uint64_t calls;            /* offloaded GEMVs (backend run succeeded) */
+    uint64_t calls;            /* offloaded calls (backend run succeeded) */
+    uint64_t gemv_calls;       /* successful calls with N == 1             */
+    uint64_t gemm_calls;       /* successful calls with N > 1              */
+    uint32_t max_columns;      /* largest successful N                     */
     uint64_t rows;             /* rows computed by the backend            */
     uint64_t weight_bytes;     /* repacked weight bytes the backend read  */
     uint64_t backend_ns;       /* time inside backend run()               */

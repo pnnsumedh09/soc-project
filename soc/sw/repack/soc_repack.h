@@ -39,8 +39,24 @@ extern "C" {
 #endif
 
 #define SOC_QK                32      /* elements per Q8_0 block (QK8_0)          */
-#define SOC_Q8_0_BLOCK_BYTES  34      /* sizeof(block_q8_0): 2 B scale + 32 int8  */
+#define SOC_Q8_0_BLOCK_BYTES  34      /* activation block: 2 B scale + 32 int8     */
+#define SOC_Q4_0_BLOCK_BYTES  18      /* weight block: 2 B scale + 16 packed nibbles */
 #define SOC_REPACK_ALIGN      4096    /* AXI 4 KB boundary; base and size rounding */
+
+/* The HLS bitstream is specialized for one weight format. Compile the
+ * software with the same value; activations remain native Q8_0 in both cases. */
+#ifndef SOC_GEMM_WEIGHT_BITS
+#define SOC_GEMM_WEIGHT_BITS 8
+#endif
+#if SOC_GEMM_WEIGHT_BITS == 4
+#define SOC_WEIGHT_BLOCK_BYTES SOC_Q4_0_BLOCK_BYTES
+#define SOC_WEIGHT_QUANT_BYTES 16
+#elif SOC_GEMM_WEIGHT_BITS == 8
+#define SOC_WEIGHT_BLOCK_BYTES SOC_Q8_0_BLOCK_BYTES
+#define SOC_WEIGHT_QUANT_BYTES 32
+#else
+#error "SOC_GEMM_WEIGHT_BITS must be 4 or 8"
+#endif
 
 /* A repacked Q8_0 matrix (out = rows, in = nb * 32). */
 typedef struct soc_q8r_mat {

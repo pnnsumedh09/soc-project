@@ -8,6 +8,13 @@ set(SOC_GEMV_SOURCES
     "${SOC_SW_DIR}/gemv/soc_gemv.c"
     "${SOC_SW_DIR}/gemv/soc_gemv_backend_emul.c")
 
+set(GGML_SOC_GEMM_WEIGHT_BITS 8 CACHE STRING
+    "Compile-time GEMM weight format: 4 for Q4_0 or 8 for Q8_0")
+set_property(CACHE GGML_SOC_GEMM_WEIGHT_BITS PROPERTY STRINGS 4 8)
+if (NOT GGML_SOC_GEMM_WEIGHT_BITS MATCHES "^(4|8)$")
+    message(FATAL_ERROR "GGML_SOC_GEMM_WEIGHT_BITS must be 4 or 8")
+endif()
+
 option(GGML_SOC_GEMV_FPGA "Build optional Linux UIO/u-dma-buf GEMV backend" OFF)
 option(GGML_SOC_GEMV_XRT "Use PYNQ/XRT buffers instead of u-dma-buf" OFF)
 if (GGML_SOC_GEMV_XRT AND NOT GGML_SOC_GEMV_FPGA)
@@ -45,7 +52,9 @@ endif()
 
 target_sources(${GGML_CPU_NAME} PRIVATE ${SOC_GEMV_SOURCES})
 target_include_directories(${GGML_CPU_NAME} PRIVATE "${SOC_SW_DIR}/repack" "${SOC_SW_DIR}/gemv")
-target_compile_definitions(${GGML_CPU_NAME} PRIVATE GGML_SOC_GEMV)
+target_compile_definitions(${GGML_CPU_NAME} PRIVATE
+    GGML_SOC_GEMV
+    SOC_GEMM_WEIGHT_BITS=${GGML_SOC_GEMM_WEIGHT_BITS})
 
 # Reproducible reference arithmetic: no fused multiply-add in our sources.
 set_source_files_properties(${SOC_GEMV_SOURCES} PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
@@ -53,4 +62,5 @@ set_source_files_properties(${SOC_GEMV_SOURCES} PROPERTIES COMPILE_OPTIONS "-ffp
 find_package(Threads REQUIRED)
 target_link_libraries(${GGML_CPU_NAME} PRIVATE Threads::Threads)
 
-message(STATUS "SoC GEMV offload enabled for ${GGML_CPU_NAME} (sources in ${GGML_SOC_DIR})")
+message(STATUS "SoC GEMM Q${GGML_SOC_GEMM_WEIGHT_BITS}_0 offload enabled for ${GGML_CPU_NAME} "
+               "(sources in ${GGML_SOC_DIR})")

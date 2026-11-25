@@ -26,7 +26,7 @@ typedef struct buffer {
 } buffer;
 
 enum {
-    PROFILE_X_COPY, PROFILE_Q_SYNC, PROFILE_S_SYNC, PROFILE_X_SYNC,
+    PROFILE_X_COPY, PROFILE_X_SYNC,
     PROFILE_OWNERSHIP, PROFILE_HAL, PROFILE_Y_SYNC, PROFILE_Y_COPY, PROFILE_PHASES
 };
 
@@ -41,6 +41,7 @@ static struct {
     __typeof__(&xclGetBOProperties) properties;
     __typeof__(&xclSyncBO) sync;
     buffer *buffers, *x, *y;
+    size_t x_capacity, y_capacity;
     size_t used;
     int uio, lock, ready;
     void *register_mapping;
@@ -116,7 +117,7 @@ static void profile_end(unsigned phase, uint64_t start) {
 static void print_profile(void) {
     if (!g.profile || !g.attempts) return;
     static const char *names[] = {
-        "activation_copy", "weight_quants_sync", "weight_scales_sync", "activation_sync",
+        "activation_copy", "activation_sync",
         "ownership_checks", "hal_submit_wait", "output_sync", "output_copy"
     };
     fprintf(stderr, "soc_gemv XRT profile: attempts=%llu successful=%llu failed=%llu\n",
@@ -198,12 +199,30 @@ static int synchronize(buffer *b, enum xclBOSyncDirection direction, size_t byte
     if (g.sync(g.device, b->bo, direction, bytes, 0)) return fail(EIO);
     return 0;
 }
+static int ensure_work_buffers(size_t xb, size_t yb) {
+    if (xb > g.x_capacity) {
+        buffer *next;
+        if (allocate_buffer(xb, &next)) return -1;
+        if (g.x) release(g.x);
+        g.x = next;
+        g.x_capacity = next->bytes;
+    }
+    if (yb > g.y_capacity) {
+        buffer *next;
+        if (allocate_buffer(yb, &next)) return -1;
+        if (g.y) release(g.y);
+        g.y = next;
+        g.y_capacity = next->bytes;
+    }
+    return 0;
+}
 static void shutdown_backend(void) {
     if (g.hal.poisoned) quarantine();
     print_profile();
     g.ready = 0;
     while (g.buffers) release(g.buffers);
     g.x = g.y = NULL;
+    g.x_capacity = g.y_capacity = 0;
     if (g.register_mapping) munmap(g.register_mapping, SOC_GEMV_REG_BYTES);
     g.register_mapping = NULL; g.registers = NULL;
     if (g.uio >= 0) close(g.uio);
@@ -261,8 +280,6 @@ static int init_backend(void) {
     if (!(ctrl & SOC_GEMV_IDLE) || (ctrl & (SOC_GEMV_START | SOC_GEMV_AUTO_RESTART))) {
         errno = EBUSY; goto bad;
     }
-    if (allocate_buffer(8192, &g.x) ||
-        allocate_buffer((size_t)SOC_GEMV_MAX_ROWS * sizeof(float), &g.y)) goto bad;
     g.hal = (soc_gemv_hal){{NULL, read32, write32, now_ns, barrier, barrier}, 0};
     if (marker('0')) goto bad;
     g.ready = 1;
@@ -284,30 +301,32 @@ static void free_backend(void *handle) {
     if (g.hal.poisoned) quarantine();
     if (g.ready && handle) release(handle);
 }
-static int run_job(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x, float *y) {
+static int sync_to_device_backend(void *handle, size_t bytes) {
+    if (!g.ready || !handle || !bytes) return fail(EINVAL);
+    buffer *b = (buffer *)handle;
+    if (bytes > b->bytes) return fail(EINVAL);
+    return synchronize(b, XCL_BO_SYNC_BO_TO_DEVICE, bytes);
+}
+static int run_job(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x, float *y,
+                   uint32_t columns) {
     if (!g.ready || !m || !x || !y || !m->rows || m->rows > SOC_GEMV_MAX_ROWS ||
-        !m->nb || m->nb > SOC_GEMV_MAX_NB) return fail(EINVAL);
-    size_t qb = (size_t)m->rows * m->nb * 32, sb = (size_t)m->rows * m->nb * 2;
-    size_t xb = (size_t)m->nb * 34, yb = (size_t)m->rows * sizeof(float);
+        !m->nb || m->nb > SOC_GEMV_MAX_NB || !columns || columns > SOC_GEMV_MAX_N)
+        return fail(EINVAL);
+    size_t qb = (size_t)m->rows * m->nb * SOC_WEIGHT_QUANT_BYTES;
+    size_t sb = (size_t)m->rows * m->nb * 2;
+    size_t xb = (size_t)columns * m->nb * 34;
+    size_t yb = (size_t)columns * m->rows * sizeof(float);
     buffer *w = lookup(m->quants, q, qb), *scales = lookup(m->scales, s, sb);
     if (!w || !scales) return fail(EINVAL);
+    if (ensure_work_buffers(xb, yb)) return -1;
     uint64_t tick = profile_start();
     memcpy(g.x->cpu, x, xb);
     profile_end(PROFILE_X_COPY, tick);
-    /* Synchronize only this matrix, not every matrix in the weight cache. */
     tick = profile_start();
-    int sync_rc = synchronize(w, XCL_BO_SYNC_BO_TO_DEVICE, qb);
-    profile_end(PROFILE_Q_SYNC, tick);
-    if (sync_rc) return -1;
-    tick = profile_start();
-    sync_rc = synchronize(scales, XCL_BO_SYNC_BO_TO_DEVICE, sb);
-    profile_end(PROFILE_S_SYNC, tick);
-    if (sync_rc) return -1;
-    tick = profile_start();
-    sync_rc = synchronize(g.x, XCL_BO_SYNC_BO_TO_DEVICE, xb);
+    int sync_rc = synchronize(g.x, XCL_BO_SYNC_BO_TO_DEVICE, xb);
     profile_end(PROFILE_X_SYNC, tick);
     if (sync_rc) return -1;
-    soc_gemv_job job = {q, s, g.x->device, g.y->device, m->rows, m->nb};
+    soc_gemv_job job = {q, s, g.x->device, g.y->device, m->rows, m->nb, columns};
     tick = profile_start();
     int marker_rc = marker('1');
     profile_end(PROFILE_OWNERSHIP, tick);
@@ -335,10 +354,11 @@ static int run_job(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x, 
     profile_end(PROFILE_Y_COPY, tick);
     return 0;
 }
-static int run_backend(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x, float *y) {
-    if (!g.profile) return run_job(m, q, s, x, y);
+static int run_backend(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x, float *y,
+                       uint32_t columns) {
+    if (!g.profile) return run_job(m, q, s, x, y, columns);
     uint64_t start = now_ns(NULL);
-    int rc = run_job(m, q, s, x, y);
+    int rc = run_job(m, q, s, x, y, columns);
     int saved = errno;
     g.run_ns += now_ns(NULL) - start;
     ++g.attempts;
@@ -348,5 +368,6 @@ static int run_backend(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void 
     return rc;
 }
 const soc_gemv_backend soc_gemv_backend_fpga = {
-    "fpga", init_backend, shutdown_backend, alloc_backend, free_backend, run_backend
+    "fpga", init_backend, shutdown_backend, alloc_backend, free_backend,
+    sync_to_device_backend, run_backend
 };

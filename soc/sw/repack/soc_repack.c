@@ -1,5 +1,6 @@
 /*
- * soc_repack.c - Q8_0 weight repacking for the GEMV accelerator (task P2.1)
+ * soc_repack.c - compile-time Q4_0/Q8_0 weight repacking for the GEMM
+ * accelerator. Activations are Q8_0 for either weight format.
  * See soc_repack.h for the layout and the rationale.
  */
 #include "soc_repack.h"
@@ -39,7 +40,7 @@ static size_t mul3(uint32_t rows, uint32_t nb, size_t unit)
 
 size_t soc_q8r_quants_bytes(uint32_t rows, uint32_t nb)
 {
-    size_t n = mul3(rows, nb, SOC_QK);
+    size_t n = mul3(rows, nb, SOC_WEIGHT_QUANT_BYTES);
     return n ? align_up(n) : 0;
 }
 
@@ -54,7 +55,7 @@ int soc_q8r_pack(const void *src, size_t src_row_stride, uint32_t rows, uint32_t
 {
     if (!src || !quants || !scales || rows == 0 || nb == 0)
         return fail_einval();
-    if (src_row_stride < (size_t)nb * SOC_Q8_0_BLOCK_BYTES)
+    if (src_row_stride < (size_t)nb * SOC_WEIGHT_BLOCK_BYTES)
         return fail_einval();
 
     const unsigned char *base = (const unsigned char *)src;
@@ -62,9 +63,10 @@ int soc_q8r_pack(const void *src, size_t src_row_stride, uint32_t rows, uint32_t
         const unsigned char *row = base + (size_t)r * src_row_stride;
         size_t out = (size_t)r * nb;                     /* block index of (r, 0) */
         for (uint32_t b = 0; b < nb; b++) {
-            const unsigned char *blk = row + (size_t)b * SOC_Q8_0_BLOCK_BYTES;
+            const unsigned char *blk = row + (size_t)b * SOC_WEIGHT_BLOCK_BYTES;
             memcpy(&scales[out + b], blk, sizeof(uint16_t));            /* d  */
-            memcpy(&quants[(out + b) * SOC_QK], blk + 2, SOC_QK);       /* qs */
+            memcpy(&quants[(out + b) * SOC_WEIGHT_QUANT_BYTES], blk + 2,
+                   SOC_WEIGHT_QUANT_BYTES);                              /* qs */
         }
     }
     return 0;
@@ -75,7 +77,7 @@ int soc_q8r_unpack(const int8_t *quants, const uint16_t *scales, uint32_t rows, 
 {
     if (!quants || !scales || !dst || rows == 0 || nb == 0)
         return fail_einval();
-    if (dst_row_stride < (size_t)nb * SOC_Q8_0_BLOCK_BYTES)
+    if (dst_row_stride < (size_t)nb * SOC_WEIGHT_BLOCK_BYTES)
         return fail_einval();
 
     unsigned char *base = (unsigned char *)dst;
@@ -83,9 +85,10 @@ int soc_q8r_unpack(const int8_t *quants, const uint16_t *scales, uint32_t rows, 
         unsigned char *row = base + (size_t)r * dst_row_stride;
         size_t in = (size_t)r * nb;
         for (uint32_t b = 0; b < nb; b++) {
-            unsigned char *blk = row + (size_t)b * SOC_Q8_0_BLOCK_BYTES;
+            unsigned char *blk = row + (size_t)b * SOC_WEIGHT_BLOCK_BYTES;
             memcpy(blk, &scales[in + b], sizeof(uint16_t));
-            memcpy(blk + 2, &quants[(in + b) * SOC_QK], SOC_QK);
+            memcpy(blk + 2, &quants[(in + b) * SOC_WEIGHT_QUANT_BYTES],
+                   SOC_WEIGHT_QUANT_BYTES);
         }
     }
     return 0;
@@ -114,7 +117,7 @@ int soc_q8r_init(soc_q8r_mat *m, uint32_t rows, uint32_t nb,
     m->scales_bytes = sb;
 
     /* Zero only the padding; the payload is overwritten by pack. */
-    size_t qused = (size_t)rows * nb * SOC_QK;
+    size_t qused = (size_t)rows * nb * SOC_WEIGHT_QUANT_BYTES;
     size_t sused = (size_t)rows * nb * sizeof(uint16_t);
     memset((char *)quants_buf + qused, 0, qb - qused);
     memset((char *)scales_buf + sused, 0, sb - sused);
@@ -195,8 +198,17 @@ float soc_fp16_to_fp32(uint16_t h)
 static inline float block_term(const int8_t *w_qs, uint16_t w_d, const int8_t *x_qs, uint16_t x_d)
 {
     int sumi = 0;
+#if SOC_GEMM_WEIGHT_BITS == 4
+    const uint8_t *packed = (const uint8_t *)w_qs;
+    for (int j = 0; j < 16; ++j) {
+        int w0 = (int)(packed[j] & 0x0f) - 8;
+        int w1 = (int)(packed[j] >> 4) - 8;
+        sumi += w0 * x_qs[j] + w1 * x_qs[j + 16];
+    }
+#else
     for (int j = 0; j < SOC_QK; j++)
         sumi += w_qs[j] * x_qs[j];
+#endif
     return (float)sumi * (soc_fp16_to_fp32(w_d) * soc_fp16_to_fp32(x_d));
 }
 
@@ -215,7 +227,8 @@ float soc_q8r_row_dot(const soc_q8r_mat *m, uint32_t row, const void *x_q8_0)
 
     for (uint32_t b = 0; b < m->nb; b++) {
         const unsigned char *xb = x + (size_t)b * SOC_Q8_0_BLOCK_BYTES;
-        sumf += block_term(&m->quants[(base + b) * SOC_QK], m->scales[base + b],
+        sumf += block_term(&m->quants[(base + b) * SOC_WEIGHT_QUANT_BYTES],
+                           m->scales[base + b],
                            (const int8_t *)(xb + 2), blk_d(xb));
     }
     return sumf;
@@ -234,7 +247,7 @@ float soc_q8_0_row_dot_native(const void *w_row_q8_0, const void *x_q8_0, uint32
     float sumf = 0.0f;
 
     for (uint32_t b = 0; b < nb; b++) {
-        const unsigned char *wb = w + (size_t)b * SOC_Q8_0_BLOCK_BYTES;
+        const unsigned char *wb = w + (size_t)b * SOC_WEIGHT_BLOCK_BYTES;
         const unsigned char *xb = x + (size_t)b * SOC_Q8_0_BLOCK_BYTES;
         sumf += block_term((const int8_t *)(wb + 2), blk_d(wb), (const int8_t *)(xb + 2), blk_d(xb));
     }

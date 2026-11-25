@@ -30,6 +30,7 @@ static struct {
     soc_gemv_arena arena;
     soc_gemv_hal hal;
     void *x, *y, *xh, *yh;
+    size_t x_capacity, y_capacity;
     uint64_t xd, yd, timeout;
 } g = {.uio_fd = -1, .dma_fd = -1, .lock_fd = -1};
 
@@ -98,6 +99,7 @@ static void fpga_shutdown(void) {
     if (g.lock_fd >= 0) close(g.lock_fd);
     g.dma_fd = g.uio_fd = g.lock_fd = -1;
     g.x = g.y = g.xh = g.yh = NULL;
+    g.x_capacity = g.y_capacity = 0;
     /* The external driver owns the persistent pool. Do not unload it while
      * a failed/crashed accelerator can still be issuing DMA. */
 }
@@ -152,10 +154,6 @@ static int fpga_init(void) {
     g.mapping = mmap(NULL, g.bytes, PROT_READ | PROT_WRITE, MAP_SHARED, g.dma_fd, 0);
     if (g.mapping == MAP_FAILED) { g.mapping = NULL; goto bad; }
     if (soc_gemv_arena_init(&g.arena, g.mapping, phys, g.bytes)) goto bad;
-    const size_t xb = 8192;
-    const size_t yb = ((size_t)SOC_GEMV_MAX_ROWS * 4 + 4095) & ~(size_t)4095;
-    if (soc_gemv_arena_alloc(&g.arena, xb, &g.x, &g.xd, &g.xh) ||
-        soc_gemv_arena_alloc(&g.arena, yb, &g.y, &g.yd, &g.yh)) goto bad;
     g.hal = (soc_gemv_hal){{NULL, read32, write32, now_ns, barrier, barrier}, 0};
     g.timeout = timeout * 1000000ull;
     if (marker('0')) goto bad;
@@ -174,15 +172,46 @@ static void fpga_free(void *handle) {
     /* Quarantine the whole arena after unknown completion: no reuse. */
     if (g.ready && !g.hal.poisoned) soc_gemv_arena_free(&g.arena, handle);
 }
-static int fpga_run(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x, float *y) {
+static int fpga_sync_to_device(void *handle, size_t bytes) {
+    (void)handle;
+    (void)bytes;
+    barrier(NULL);
+    return 0;
+}
+static int ensure_work_buffers(size_t xb, size_t yb) {
+    if (xb > SIZE_MAX - 4095 || yb > SIZE_MAX - 4095) return fail(EOVERFLOW);
+    xb = (xb + 4095) & ~(size_t)4095;
+    yb = (yb + 4095) & ~(size_t)4095;
+    if (xb > g.x_capacity) {
+        void *cpu, *handle;
+        uint64_t dev;
+        if (soc_gemv_arena_alloc(&g.arena, xb, &cpu, &dev, &handle)) return -1;
+        if (g.xh) soc_gemv_arena_free(&g.arena, g.xh);
+        g.x = cpu; g.xd = dev; g.xh = handle; g.x_capacity = xb;
+    }
+    if (yb > g.y_capacity) {
+        void *cpu, *handle;
+        uint64_t dev;
+        if (soc_gemv_arena_alloc(&g.arena, yb, &cpu, &dev, &handle)) return -1;
+        if (g.yh) soc_gemv_arena_free(&g.arena, g.yh);
+        g.y = cpu; g.yd = dev; g.yh = handle; g.y_capacity = yb;
+    }
+    return 0;
+}
+static int fpga_run(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x, float *y,
+                    uint32_t columns) {
     if (!g.ready || g.hal.poisoned) return fail(EIO);
     if (!m || !x || !y || !m->rows || m->rows > SOC_GEMV_MAX_ROWS ||
-        !m->nb || m->nb > SOC_GEMV_MAX_NB ||
-        !soc_gemv_arena_contains(&g.arena, m->quants, q, (size_t)m->rows * m->nb * 32) ||
+        !m->nb || m->nb > SOC_GEMV_MAX_NB || !columns || columns > SOC_GEMV_MAX_N ||
+        !soc_gemv_arena_contains(&g.arena, m->quants, q,
+                                 (size_t)m->rows * m->nb * SOC_WEIGHT_QUANT_BYTES) ||
         !soc_gemv_arena_contains(&g.arena, m->scales, s, (size_t)m->rows * m->nb * 2))
         return fail(EINVAL);
-    memcpy(g.x, x, m->nb * 34);
-    soc_gemv_job j = {q, s, g.xd, g.yd, m->rows, m->nb};
+    size_t xb = (size_t)columns * m->nb * 34;
+    size_t yb = (size_t)columns * m->rows * sizeof(float);
+    if (ensure_work_buffers(xb, yb)) return -1;
+    memcpy(g.x, x, xb);
+    soc_gemv_job j = {q, s, g.xd, g.yd, m->rows, m->nb, columns};
     uint32_t status;
     if (marker('1')) { g.hal.poisoned = 1; return -1; }
     int rc = soc_gemv_hal_run(&g.hal, &j, g.timeout, &status);
@@ -195,9 +224,10 @@ static int fpga_run(const soc_q8r_mat *m, uint64_t q, uint64_t s, const void *x,
         }
     }
     if (rc) { errno = saved; return -1; }
-    memcpy(y, g.y, m->rows * sizeof(float));
+    memcpy(y, g.y, yb);
     return 0;
 }
 const soc_gemv_backend soc_gemv_backend_fpga = {
-    "fpga", fpga_init, fpga_shutdown, fpga_alloc, fpga_free, fpga_run
+    "fpga", fpga_init, fpga_shutdown, fpga_alloc, fpga_free,
+    fpga_sync_to_device, fpga_run
 };
