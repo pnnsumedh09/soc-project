@@ -248,7 +248,7 @@ static int init_backend(void) {
         number(setting("SOC_GEMV_TIMEOUT_MS", "10000"), &timeout) || !timeout || timeout > 600000)
         return fail(EINVAL);
     g.timeout = timeout * 1000000ull;
-    g.lock = open(setting("SOC_GEMV_LOCK_FILE", "/tmp/soc-gemv-a0000000.lock"),
+    g.lock = open(setting("SOC_GEMV_LOCK_FILE", "/run/soc-gemv-a0000000.lock"),
                   O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (g.lock < 0 || flock(g.lock, LOCK_EX | LOCK_NB)) goto bad;
     char previous = 0;
