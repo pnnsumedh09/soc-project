@@ -273,52 +273,67 @@ compute_rows:
 #endif
                 accum[lane] = 0.0f;
             }
-
-        compute_blocks:
-            for (uint32_t b = 0; b < nb; ++b) {
-                soc_gemm_word w0 = q0_fifo.read();
+            // Keep the block-to-block schedule inside one pipeline.  The
+            // previous nested form restarted and drained an eight-iteration
+            // lane pipeline for every block, giving compute_blocks an
+            // effective 32-cycle iteration latency.  A weight block and its
+            // scale are read once at lane zero and retained for lanes 1..7.
+            soc_gemm_word current_w0 = 0;
 #if SOC_GEMM_WEIGHT_BITS == 8
-                soc_gemm_word w1 = q1_fifo.read();
+            soc_gemm_word current_w1 = 0;
 #endif
-                uint16_t w_scale_bits = scale_fifo.read();
-                bool scale_ok = finite_half(w_scale_bits);
-                if (!scale_ok) {
-                    bad_w_scale = true;
-                }
-                float w_scale =
-                    scale_ok ? dot_half_to_float(w_scale_bits) : 0.0f;
+            float current_w_scale = 0.0f;
+            bool current_scale_ok = true;
+            uint32_t total_slots = nb * SOC_GEMM_HW_N_TILE;
 
-            compute_lanes:
-                for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
+        compute_block_lanes:
+            for (uint32_t slot = 0; slot < total_slots; ++slot) {
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS PIPELINE II=1
 #endif
-                    // Eight rotating contexts hide FP accumulator latency.
-                    float next = accum[0];
-                    if (lane < active_columns && scale_ok) {
+                uint32_t lane = slot % SOC_GEMM_HW_N_TILE;
+                uint32_t b = slot / SOC_GEMM_HW_N_TILE;
+                if (lane == 0) {
+                    current_w0 = q0_fifo.read();
 #if SOC_GEMM_WEIGHT_BITS == 8
-                        int32_t sumi =
-                            dot_beat(w0, x_words[lane][2 * b]) +
-                            dot_beat(w1, x_words[lane][2 * b + 1]);
-#else
-                        int32_t sumi =
-                            dot_q4_0_block(w0,
-                                           x_words[lane][2 * b],
-                                           x_words[lane][2 * b + 1]);
+                    current_w1 = q1_fifo.read();
 #endif
-                        float scale_product = w_scale * x_scales[lane][b];
-                        float term = (float)sumi * scale_product;
-                        next = next + term;
+                    uint16_t w_scale_bits = scale_fifo.read();
+                    current_scale_ok = finite_half(w_scale_bits);
+                    if (!current_scale_ok) {
+                        bad_w_scale = true;
                     }
-                    for (uint32_t i = 0;
-                         i < SOC_GEMM_HW_N_TILE - 1; ++i) {
+                    current_w_scale = current_scale_ok
+                                          ? dot_half_to_float(w_scale_bits)
+                                          : 0.0f;
+                }
+
+                // Eight rotating contexts hide FP accumulator latency.  The
+                // rotation now continues directly across block boundaries.
+                float next = accum[0];
+                if (lane < active_columns && current_scale_ok) {
+#if SOC_GEMM_WEIGHT_BITS == 8
+                    int32_t sumi =
+                        dot_beat(current_w0, x_words[lane][2 * b]) +
+                        dot_beat(current_w1, x_words[lane][2 * b + 1]);
+#else
+                    int32_t sumi =
+                        dot_q4_0_block(current_w0,
+                                       x_words[lane][2 * b],
+                                       x_words[lane][2 * b + 1]);
+#endif
+                    float scale_product =
+                        current_w_scale * x_scales[lane][b];
+                    float term = (float)sumi * scale_product;
+                    next = next + term;
+                }
+                for (uint32_t i = 0; i < SOC_GEMM_HW_N_TILE - 1; ++i) {
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS UNROLL
 #endif
-                        accum[i] = accum[i + 1];
-                    }
-                    accum[SOC_GEMM_HW_N_TILE - 1] = next;
+                    accum[i] = accum[i + 1];
                 }
+                accum[SOC_GEMM_HW_N_TILE - 1] = next;
             }
 
         write_compute_tile:
@@ -339,6 +354,247 @@ compute_rows:
     } else if (bad_w_scale) {
         status = SOC_GEMM_HW_BAD_W_SCALE;
     }
+}
+
+static void load_decode_quants(
+                 const soc_gemm_word *w_quants,
+                 hls::stream<soc_gemm_word> q0_fifo[SOC_GEMM_HW_N_TILE],
+#if SOC_GEMM_WEIGHT_BITS == 8
+                 hls::stream<soc_gemm_word> q1_fifo[SOC_GEMM_HW_N_TILE],
+#endif
+                 uint32_t m,
+                 uint32_t nb) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS INLINE off
+#endif
+    uint32_t lane = 0;
+    uint32_t block_in_row = 0;
+#if SOC_GEMM_WEIGHT_BITS == 8
+    uint32_t beats = 2 * m * nb;
+load_decode_quant_beats:
+    for (uint32_t beat = 0; beat < beats; ++beat) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+        soc_gemm_word value = w_quants[beat];
+        if ((beat & 1u) == 0) {
+            q0_fifo[lane].write(value);
+        } else {
+            q1_fifo[lane].write(value);
+            ++block_in_row;
+            if (block_in_row == nb) {
+                block_in_row = 0;
+                lane = (lane + 1) % SOC_GEMM_HW_N_TILE;
+            }
+        }
+    }
+#else
+    uint32_t blocks = m * nb;
+load_decode_quant_blocks:
+    for (uint32_t block = 0; block < blocks; ++block) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+        q0_fifo[lane].write(w_quants[block]);
+        ++block_in_row;
+        if (block_in_row == nb) {
+            block_in_row = 0;
+            lane = (lane + 1) % SOC_GEMM_HW_N_TILE;
+        }
+    }
+#endif
+}
+
+static void load_decode_scales(
+                 const uint16_t *w_scales,
+                 hls::stream<uint16_t> scale_fifo[SOC_GEMM_HW_N_TILE],
+                 uint32_t m,
+                 uint32_t nb) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS INLINE off
+#endif
+    uint32_t lane = 0;
+    uint32_t block_in_row = 0;
+    uint32_t blocks = m * nb;
+load_decode_scale_blocks:
+    for (uint32_t block = 0; block < blocks; ++block) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+        scale_fifo[lane].write(w_scales[block]);
+        ++block_in_row;
+        if (block_in_row == nb) {
+            block_in_row = 0;
+            lane = (lane + 1) % SOC_GEMM_HW_N_TILE;
+        }
+    }
+}
+
+static void compute_decode_rows(
+                 hls::stream<soc_gemm_word> q0_fifo[SOC_GEMM_HW_N_TILE],
+#if SOC_GEMM_WEIGHT_BITS == 8
+                 hls::stream<soc_gemm_word> q1_fifo[SOC_GEMM_HW_N_TILE],
+#endif
+                 hls::stream<uint16_t> scale_fifo[SOC_GEMM_HW_N_TILE],
+                 const uint8_t *x_native,
+                 float *y,
+                 uint32_t m,
+                 uint32_t nb,
+                 uint32_t &status) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS INLINE off
+#endif
+    soc_gemm_word x_words[2 * SOC_GEMM_HW_MAX_NB];
+    float x_scales[SOC_GEMM_HW_MAX_NB];
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS ARRAY_PARTITION variable=x_words cyclic factor=2 dim=1
+#endif
+    bool bad_x_scale = false;
+    bool bad_w_scale = false;
+
+load_decode_activation:
+    for (uint32_t b = 0; b < nb; ++b) {
+        uint32_t base = b * 34u;
+        uint16_t scale = (uint16_t)x_native[base] |
+                         ((uint16_t)x_native[base + 1] << 8);
+        bool scale_ok = finite_half(scale);
+        if (!scale_ok) {
+            bad_x_scale = true;
+        }
+        x_scales[b] = scale_ok ? dot_half_to_float(scale) : 0.0f;
+        for (uint32_t half = 0; half < 2; ++half) {
+            soc_gemm_word word = 0;
+            for (uint32_t j = 0; j < 16; ++j) {
+                word |= soc_gemm_word(x_native[base + 2 + half * 16 + j])
+                        << (8 * j);
+            }
+            x_words[2 * b + half] = word;
+        }
+    }
+
+decode_row_groups:
+    for (uint32_t row_base = 0; row_base < m;
+         row_base += SOC_GEMM_HW_N_TILE) {
+        uint32_t active_rows = m - row_base;
+        if (active_rows > SOC_GEMM_HW_N_TILE) {
+            active_rows = SOC_GEMM_HW_N_TILE;
+        }
+        float accum[SOC_GEMM_HW_N_TILE];
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS ARRAY_PARTITION variable=accum complete
+#endif
+    init_decode_accumulators:
+        for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS UNROLL
+#endif
+            accum[lane] = 0.0f;
+        }
+
+        uint32_t total_slots = nb * SOC_GEMM_HW_N_TILE;
+    compute_decode_block_rows:
+        for (uint32_t slot = 0; slot < total_slots; ++slot) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+            uint32_t lane = slot % SOC_GEMM_HW_N_TILE;
+            uint32_t b = slot / SOC_GEMM_HW_N_TILE;
+            float next = accum[0];
+            if (lane < active_rows) {
+                soc_gemm_word w0 = q0_fifo[lane].read();
+#if SOC_GEMM_WEIGHT_BITS == 8
+                soc_gemm_word w1 = q1_fifo[lane].read();
+#endif
+                uint16_t w_scale_bits = scale_fifo[lane].read();
+                bool scale_ok = finite_half(w_scale_bits);
+                if (!scale_ok) {
+                    bad_w_scale = true;
+                }
+                if (scale_ok) {
+#if SOC_GEMM_WEIGHT_BITS == 8
+                    int32_t sumi =
+                        dot_beat(w0, x_words[2 * b]) +
+                        dot_beat(w1, x_words[2 * b + 1]);
+#else
+                    int32_t sumi =
+                        dot_q4_0_block(w0, x_words[2 * b],
+                                      x_words[2 * b + 1]);
+#endif
+                    float scale_product =
+                        dot_half_to_float(w_scale_bits) * x_scales[b];
+                    float term = (float)sumi * scale_product;
+                    next = next + term;
+                }
+            }
+            for (uint32_t i = 0; i < SOC_GEMM_HW_N_TILE - 1; ++i) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS UNROLL
+#endif
+                accum[i] = accum[i + 1];
+            }
+            accum[SOC_GEMM_HW_N_TILE - 1] = next;
+        }
+
+    write_decode_rows:
+        for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+            if (lane < active_rows && !bad_x_scale && !bad_w_scale) {
+                y[row_base + lane] = accum[lane];
+            }
+        }
+    }
+
+    if (bad_x_scale) {
+        status = SOC_GEMM_HW_BAD_X_SCALE;
+    } else if (bad_w_scale) {
+        status = SOC_GEMM_HW_BAD_W_SCALE;
+    }
+}
+
+static void run_decode_dataflow(
+                 const soc_gemm_word *w_quants,
+                 const uint16_t *w_scales,
+                 const uint8_t *x_native,
+                 float *y,
+                 uint32_t m,
+                 uint32_t nb,
+                 uint32_t &status) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS INLINE off
+#pragma HLS DATAFLOW
+#endif
+    // Eight lane FIFOs, each holding two maximum-width rows, retain the same
+    // total sixteen-row prefetch capacity while transposing row-major input
+    // into block-major, row-interleaved compute order.
+    hls::stream<soc_gemm_word> q0_fifo[SOC_GEMM_HW_N_TILE];
+#if SOC_GEMM_WEIGHT_BITS == 8
+    hls::stream<soc_gemm_word> q1_fifo[SOC_GEMM_HW_N_TILE];
+#endif
+    hls::stream<uint16_t> scale_fifo[SOC_GEMM_HW_N_TILE];
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS ARRAY_PARTITION variable=q0_fifo complete dim=1
+#pragma HLS STREAM variable=q0_fifo depth=304
+#if SOC_GEMM_WEIGHT_BITS == 8
+#pragma HLS ARRAY_PARTITION variable=q1_fifo complete dim=1
+#pragma HLS STREAM variable=q1_fifo depth=304
+#endif
+#pragma HLS ARRAY_PARTITION variable=scale_fifo complete dim=1
+#pragma HLS STREAM variable=scale_fifo depth=304
+#endif
+
+    load_decode_quants(w_quants, q0_fifo,
+#if SOC_GEMM_WEIGHT_BITS == 8
+                       q1_fifo,
+#endif
+                       m, nb);
+    load_decode_scales(w_scales, scale_fifo, m, nb);
+    compute_decode_rows(q0_fifo,
+#if SOC_GEMM_WEIGHT_BITS == 8
+                        q1_fifo,
+#endif
+                        scale_fifo, x_native, y, m, nb, status);
 }
 
 static void run_weight_dataflow(
@@ -414,6 +670,11 @@ void soc_gemm_hw(const soc_gemm_word *w_quants,
     // Start the dataflow network once. Each process loops over every
     // eight-column tile internally, so the generated hardware does not need
     // to restart a dataflow submodule between tiles.
-    run_weight_dataflow(w_quants, w_scales, x_native, y,
-                        m, nb, n, status);
+    if (n == 1) {
+        run_decode_dataflow(w_quants, w_scales, x_native, y,
+                            m, nb, status);
+    } else {
+        run_weight_dataflow(w_quants, w_scales, x_native, y,
+                            m, nb, n, status);
+    }
 }

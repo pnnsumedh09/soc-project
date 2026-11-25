@@ -208,7 +208,8 @@ int main() {
     const uint32_t shapes[][3] = {
         {1, 1, 1}, {3, 1, 2}, {4, 3, 5},
         {7, 28, 3}, {8, 33, 4}, {5, 152, 2},
-        {2, 7, 8}, {3, 5, 9}, {2, 2, 17}
+        {2, 7, 8}, {3, 5, 9}, {2, 2, 17},
+        {9, 5, 1}, {17, 2, 1}
     };
     for (unsigned i = 0; i < sizeof(shapes) / sizeof(shapes[0]); ++i) {
         run_shape(shapes[i][0], shapes[i][1], shapes[i][2]);
