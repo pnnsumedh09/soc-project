@@ -129,6 +129,14 @@ set_property -dict [list \
     CONFIG.PSU__FPGA_PL0_ENABLE {1} \
     CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ $mhz] $ps
 
+# The extracted Ultra96-V2 PS preset uses the 1500 MHz IOPLL with a
+# fixed PL0 divider of 15 (100 MHz). In advanced clock mode the requested
+# frequency alone does not update that divider. Select 1500 / 10 for the
+# 150 MHz experiment; the implemented-period check below remains mandatory.
+if {$ps_config ne "" && $mhz == 150} {
+    set_property CONFIG.PSU__CRL_APB__PL0_REF_CTRL__DIVISOR0 {10} $ps
+}
+
 
 create_bd_cell -type ip -vlnv soc.org:hls:soc_gemm_hw:1.0 gemm_0
 create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 control_xbar

@@ -275,6 +275,12 @@ load_shared_activation_columns:
     }
 }
 
+struct shared_output_packet {
+    float value;
+    uint32_t index;
+    uint8_t valid;
+};
+
 static void compute_shared_groups(
                  hls::stream<soc_gemm_word> q0_fifo[SOC_GEMM_HW_N_TILE],
 #if SOC_GEMM_WEIGHT_BITS == 8
@@ -282,7 +288,7 @@ static void compute_shared_groups(
 #endif
                  hls::stream<uint16_t> scale_fifo[SOC_GEMM_HW_N_TILE],
                  const uint8_t *x_native,
-                 float *y,
+                 hls::stream<shared_output_packet> &output_fifo,
                  uint32_t m,
                  uint32_t nb,
                  uint32_t n,
@@ -301,80 +307,53 @@ static void compute_shared_groups(
     uint32_t column_tiles =
         row_interleaved ? 1u : (n + SOC_GEMM_HW_N_TILE - 1) /
                                      SOC_GEMM_HW_N_TILE;
-    uint32_t groups = row_interleaved
-                          ? (m + SOC_GEMM_HW_N_TILE - 1) /
-                                SOC_GEMM_HW_N_TILE
-                          : column_tiles * m;
     bool bad_x_scale = false;
     bool bad_w_scale = false;
-
-shared_groups:
-    for (uint32_t group = 0; group < groups; ++group) {
-        uint32_t row = 0;
-        uint32_t row_base = 0;
-        uint32_t col_base = 0;
-        uint32_t active_lanes = 0;
-        bool load_activation = false;
-        uint32_t activation_col_base = 0;
-        uint32_t activation_columns = 0;
-
-        if (row_interleaved) {
-            row_base = group * SOC_GEMM_HW_N_TILE;
-            active_lanes = m - row_base;
-            if (active_lanes > SOC_GEMM_HW_N_TILE) {
-                active_lanes = SOC_GEMM_HW_N_TILE;
-            }
-            if (group == 0) {
-                load_activation = true;
-                activation_columns = 1;
-            }
-        } else {
-            uint32_t tile = group / m;
-            row = group - tile * m;
-            col_base = tile * SOC_GEMM_HW_N_TILE;
-            active_lanes = n - col_base;
-            if (active_lanes > SOC_GEMM_HW_N_TILE) {
-                active_lanes = SOC_GEMM_HW_N_TILE;
-            }
-            if (row == 0) {
-                load_activation = true;
-                activation_col_base = col_base;
-                activation_columns = active_lanes;
-            }
-        }
-        if (load_activation) {
-            load_shared_activation_tile(x_native, x_words, x_scales,
-                                        activation_col_base,
-                                        activation_columns, nb,
-                                        bad_x_scale);
-        }
-
-        float accum[SOC_GEMM_HW_N_TILE];
+    float accum[SOC_GEMM_HW_N_TILE];
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS ARRAY_PARTITION variable=accum complete
 #endif
-    init_shared_accumulators:
-        for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS UNROLL
-#endif
-            accum[lane] = 0.0f;
-        }
 
+shared_activation_tiles:
+    for (uint32_t tile = 0; tile < column_tiles; ++tile) {
+        uint32_t col_base = row_interleaved
+                                ? 0u
+                                : tile * SOC_GEMM_HW_N_TILE;
+        uint32_t active_columns = row_interleaved ? 1u : n - col_base;
+        if (active_columns > SOC_GEMM_HW_N_TILE) {
+            active_columns = SOC_GEMM_HW_N_TILE;
+        }
+        load_shared_activation_tile(x_native, x_words, x_scales,
+                                    col_base, active_columns, nb,
+                                    bad_x_scale);
+
+        uint32_t groups_in_tile = row_interleaved
+                                      ? (m + SOC_GEMM_HW_N_TILE - 1) /
+                                            SOC_GEMM_HW_N_TILE
+                                      : m;
+        uint32_t total_slots =
+            groups_in_tile * nb * SOC_GEMM_HW_N_TILE;
+        uint32_t lane = 0;
+        uint32_t b = 0;
+        uint32_t group = 0;
         soc_gemm_word held_w0 = 0;
 #if SOC_GEMM_WEIGHT_BITS == 8
         soc_gemm_word held_w1 = 0;
 #endif
         uint16_t held_scale_bits = 0;
-        uint32_t total_slots = nb * SOC_GEMM_HW_N_TILE;
 
     shared_compute_slots:
         for (uint32_t slot = 0; slot < total_slots; ++slot) {
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS PIPELINE II=1
 #endif
-            uint32_t lane = slot % SOC_GEMM_HW_N_TILE;
-            uint32_t b = slot / SOC_GEMM_HW_N_TILE;
+            uint32_t row_base = group * SOC_GEMM_HW_N_TILE;
+            uint32_t active_lanes = row_interleaved
+                                        ? m - row_base
+                                        : active_columns;
+            if (active_lanes > SOC_GEMM_HW_N_TILE) {
+                active_lanes = SOC_GEMM_HW_N_TILE;
+            }
             bool active = lane < active_lanes;
 
             soc_gemm_word selected_w0 = held_w0;
@@ -414,7 +393,8 @@ shared_groups:
             // This is the only dot-product call site in the runtime-selected
             // N=1/N>1 schedules. The lane interpretation changes, not the
             // physical multiplier/reduction and FP accumulation pipeline.
-            float next = accum[0];
+            float prev = b == 0 ? 0.0f : accum[0];
+            float next = prev;
             if (active && scale_ok) {
                 uint32_t x_lane = row_interleaved ? 0u : lane;
 #if SOC_GEMM_WEIGHT_BITS == 8
@@ -430,7 +410,17 @@ shared_groups:
                 float w_scale = dot_half_to_float(selected_scale_bits);
                 float scale_product = w_scale * x_scales[x_lane][b];
                 float term = (float)sumi * scale_product;
-                next = next + term;
+                next = prev + term;
+            }
+
+            if (b + 1 == nb) {
+                shared_output_packet output;
+                output.value = next;
+                output.index = row_interleaved
+                                   ? row_base + lane
+                                   : (col_base + lane) * m + group;
+                output.valid = active && !bad_x_scale && !bad_w_scale;
+                output_fifo.write(output);
             }
 
             for (uint32_t i = 0; i < SOC_GEMM_HW_N_TILE - 1; ++i) {
@@ -440,19 +430,17 @@ shared_groups:
                 accum[i] = accum[i + 1];
             }
             accum[SOC_GEMM_HW_N_TILE - 1] = next;
-        }
 
-    write_shared_outputs:
-        for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS PIPELINE II=1
-#endif
-            if (lane < active_lanes && !bad_x_scale && !bad_w_scale) {
-                if (row_interleaved) {
-                    y[row_base + lane] = accum[lane];
+            if (lane + 1 == SOC_GEMM_HW_N_TILE) {
+                lane = 0;
+                if (b + 1 == nb) {
+                    b = 0;
+                    ++group;
                 } else {
-                    y[(col_base + lane) * m + row] = accum[lane];
+                    ++b;
                 }
+            } else {
+                ++lane;
             }
         }
     }
@@ -461,6 +449,25 @@ shared_groups:
         status = SOC_GEMM_HW_BAD_X_SCALE;
     } else if (bad_w_scale) {
         status = SOC_GEMM_HW_BAD_W_SCALE;
+    }
+}
+
+static void write_shared_outputs(
+                 hls::stream<shared_output_packet> &output_fifo,
+                 float *y,
+                 uint32_t packets) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS INLINE off
+#endif
+write_shared_output_packets:
+    for (uint32_t i = 0; i < packets; ++i) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS PIPELINE II=1
+#endif
+        shared_output_packet output = output_fifo.read();
+        if (output.valid) {
+            y[output.index] = output.value;
+        }
     }
 }
 
@@ -477,15 +484,15 @@ static void run_shared_dataflow(
 #pragma HLS INLINE off
 #pragma HLS DATAFLOW
 #endif
-    // One physical FIFO set feeds both schedules. Each lane can hold two
-    // maximum-width rows. This preserves the known-good prefetch capacity
-    // while eliminating the second DATAFLOW network; depth reduction is the
-    // next isolated area experiment.
+    // One physical FIFO set feeds both schedules. Depth 152 holds one
+    // maximum-width row per lane; as compute consumes the current row, the
+    // producer refills the released entries with the following row.
     hls::stream<soc_gemm_word> q0_fifo[SOC_GEMM_HW_N_TILE];
 #if SOC_GEMM_WEIGHT_BITS == 8
     hls::stream<soc_gemm_word> q1_fifo[SOC_GEMM_HW_N_TILE];
 #endif
     hls::stream<uint16_t> scale_fifo[SOC_GEMM_HW_N_TILE];
+    hls::stream<shared_output_packet> output_fifo;
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS ARRAY_PARTITION variable=q0_fifo complete dim=1
 #pragma HLS STREAM variable=q0_fifo depth=152
@@ -495,7 +502,18 @@ static void run_shared_dataflow(
 #endif
 #pragma HLS ARRAY_PARTITION variable=scale_fifo complete dim=1
 #pragma HLS STREAM variable=scale_fifo depth=152
+#pragma HLS STREAM variable=output_fifo depth=16
 #endif
+
+    const bool row_interleaved = n == 1;
+    uint32_t column_tiles =
+        row_interleaved ? 1u : (n + SOC_GEMM_HW_N_TILE - 1) /
+                                     SOC_GEMM_HW_N_TILE;
+    uint32_t groups = row_interleaved
+                          ? (m + SOC_GEMM_HW_N_TILE - 1) /
+                                SOC_GEMM_HW_N_TILE
+                          : column_tiles * m;
+    uint32_t output_packets = groups * SOC_GEMM_HW_N_TILE;
 
     load_shared_quants(w_quants, q0_fifo,
 #if SOC_GEMM_WEIGHT_BITS == 8
@@ -507,7 +525,9 @@ static void run_shared_dataflow(
 #if SOC_GEMM_WEIGHT_BITS == 8
                           q1_fifo,
 #endif
-                          scale_fifo, x_native, y, m, nb, n, status);
+                          scale_fifo, x_native, output_fifo,
+                          m, nb, n, status);
+    write_shared_outputs(output_fifo, y, output_packets);
 }
 
 void soc_gemm_hw(const soc_gemm_word *w_quants,
