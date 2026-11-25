@@ -1,0 +1,3 @@
+ca59ca7f13d0e15a8cfa77bd17e65d24f6844b554a7b6c12e07a5f89ff76844e  models/profiling/qwen2.5-0.5b-instruct-q8_0.gguf
+b7bfeab6495a1ae3ae78811c1297df9f301b35261ff9580d42fb30dc4dc9034b  models/profiling/LFM2-350M-Q8_0.gguf
+0967d902ed270d07cb374a1972bb5da4338d2a303b565cf4eb7948b958e751ab  models/profiling/LFM2-700M-Q8_0.gguf

@@ -1,0 +1,1 @@
+/misc/scratch/nkg557/SoC/soc-project/models/profiling/LFM2-350M-Q8_0.gguf

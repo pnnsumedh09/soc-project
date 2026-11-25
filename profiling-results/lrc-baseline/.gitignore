@@ -1,0 +1,7 @@
+*.gguf
+gmon.out
+callgrind.out
+callgrind-help.out
+core
+core.*
+*.tar.gz

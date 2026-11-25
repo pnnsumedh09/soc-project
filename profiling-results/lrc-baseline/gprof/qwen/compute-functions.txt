@@ -1,0 +1,20 @@
+6: 34.97      0.64     0.64  4427194     0.00     0.00  ggml_vec_dot_q8_0_q8_0
+10:  4.37      1.50     0.08       10     0.01     0.17  ggml_compute_forward_mul_mat
+12:  2.19      1.60     0.04  4492587     0.00     0.00  ggml_vec_dot_f16_f32
+16:  1.09      1.70     0.02      264     0.00     0.00  ggml_compute_forward_soft_max
+22:  0.55      1.77     0.01    16800     0.00     0.00  ggml_vec_soft_max_f32
+107:  0.00      1.83     0.00     3884     0.00     0.00  ggml_mul_mat
+131:  0.00      1.83     0.00     2395     0.00     0.00  ggml_rope_cache_init(float, float, float const*, float*, long, float, float, float*, float, float)
+132:  0.00      1.83     0.00     2379     0.00     0.00  ggml_compute_forward_mul_mat_tiled
+243:  0.00      1.83     0.00      726     0.00     0.00  ggml_rms_norm
+247:  0.00      1.83     0.00      710     0.00     0.00  build_rope_impl(ggml_context*, ggml_tensor*, ggml_tensor*, llama_hparams const&, llama_rope_params const&)
+250:  0.00      1.83     0.00      710     0.00     0.00  ggml_rope_ext
+251:  0.00      1.83     0.00      710     0.00     0.00  ggml_rope_impl
+306:  0.00      1.83     0.00      537     0.00     0.00  ggml_compute_forward_rms_norm_mul_fused
+314:  0.00      1.83     0.00      523     0.00     0.00  void ggml_compute_forward_rope_flt<float>(ggml_compute_params const*, ggml_tensor*, bool)
+315:  0.00      1.83     0.00      523     0.00     0.00  ggml_compute_forward_rope
+316:  0.00      1.83     0.00      523     0.00     0.00  ggml_rope_get_truncate
+317:  0.00      1.83     0.00      523     0.00     0.00  ggml_rope_yarn_corr_dims
+384:  0.00      1.83     0.00      353     0.00     0.00  ggml_soft_max_add_sinks
+385:  0.00      1.83     0.00      353     0.00     0.00  ggml_soft_max_ext
+386:  0.00      1.83     0.00      353     0.00     0.00  ggml_soft_max_impl

@@ -1,0 +1,23 @@
+6: 53.02      1.23     1.23  4053226     0.00     0.00  ggml_vec_dot_q8_0_q8_0
+10:  2.59      2.23     0.06       10     0.01     0.23  ggml_compute_forward_mul_mat
+12:  0.43      2.25     0.01  1234932     0.00     0.00  ggml_vec_dot_f16_f32
+16:  0.43      2.29     0.01      584     0.00     0.00  ggml_compute_forward_rms_norm_mul_fused
+19:  0.43      2.32     0.01                             ggml_vec_dot_q5_1_q8_1
+81:  0.00      2.32     0.00     4464     0.00     0.00  ggml_vec_soft_max_f32
+107:  0.00      2.32     0.00     2129     0.00     0.00  ggml_mul_mat
+130:  0.00      2.32     0.00     1356     0.00     0.00  ggml_compute_forward_mul_mat_tiled
+162:  0.00      2.32     0.00      750     0.00     0.00  ggml_rms_norm
+245:  0.00      2.32     0.00      372     0.00     0.00  ggml_rope_cache_init(float, float, float const*, float*, long, float, float, float*, float, float)
+364:  0.00      2.32     0.00      207     0.00     0.00  ggml_ssm_conv
+367:  0.00      2.32     0.00      204     0.00     0.00  build_rope_impl(ggml_context*, ggml_tensor*, ggml_tensor*, llama_hparams const&, llama_rope_params const&)
+372:  0.00      2.32     0.00      203     0.00     0.00  ggml_rope_ext
+373:  0.00      2.32     0.00      203     0.00     0.00  ggml_rope_impl
+408:  0.00      2.32     0.00      156     0.00     0.00  void ggml_compute_forward_rope_flt<float>(ggml_compute_params const*, ggml_tensor*, bool)
+410:  0.00      2.32     0.00      156     0.00     0.00  ggml_compute_forward_rope
+413:  0.00      2.32     0.00      156     0.00     0.00  ggml_rope_get_truncate
+414:  0.00      2.32     0.00      156     0.00     0.00  ggml_rope_yarn_corr_dims
+439:  0.00      2.32     0.00      130     0.00     0.00  ggml_compute_forward_ssm_conv
+466:  0.00      2.32     0.00      102     0.00     0.00  ggml_soft_max_ext
+473:  0.00      2.32     0.00      101     0.00     0.00  ggml_soft_max_add_sinks
+474:  0.00      2.32     0.00      101     0.00     0.00  ggml_soft_max_impl
+517:  0.00      2.32     0.00       78     0.00     0.00  ggml_compute_forward_soft_max
