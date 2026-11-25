@@ -9,7 +9,7 @@ continue changing after a design has been validated.
 |---|---|---|---|
 | Golden Q8_0 GEMV | `gemv-golden` | `ultra96-q8-gemv-golden-v1` | Validated |
 | Q8_0 GEMM/GEMV, N≤8 | `gemm-compiletime-quant` | `ultra96-q8-gemm-n8-validated-v1` | Ultra96-V2 validated |
-| Q4_0 GEMM/GEMV | `gemm-compiletime-quant` | Not validated/tagged | Shared-engine HLS/RTL and bitstream passed; software/board validation pending |
+| Q4_0 GEMM/GEMV, grouped 100 MHz | `gemm-compiletime-quant` | Not tagged | Ultra96-V2 correctness validated; submitted design |
 
 ## Development checkpoints
 
@@ -40,8 +40,8 @@ continue changing after a design has been validated.
 
 - Branch: `gemm-compiletime-quant`
 - Commit: `fe250ce7fb844cd5057abbf12c6458e84e376485`
-- Status: hardware candidate; software integration and Ultra96-V2 correctness
-  validation are still pending, so this checkpoint is not tagged as validated.
+- Status: submitted, board-validated grouped 100 MHz design. This commit is the
+  pre-flattening hardware source; the later documentation commit is not needed to build it.
 - Architecture: one shared FIFO set, activation store, 32-element dot-product
   pipeline, and eight-context accumulator bank. Contexts represent rows for
   N=1 and columns for N>1.
@@ -55,6 +55,26 @@ continue changing after a design has been validated.
   and 11,944 CLB registers.
 - Relative to the split-datapath implementation, this reduces implemented
   Block RAM tiles by 29.5% and DSPs by 44.9%.
+- Ultra96-V2 Q4_0 model test: forced GEMV completed 7,101 N=1 offloads;
+  the N≤8 test completed 1,161 offloads (171 N=1, 990 N>1, max N=8).
+  Both had zero CPU fallbacks and zero stale repacks. The maximum relative
+  FPGA/CPU verification error was 1.09e-6 and 1.08e-6 respectively.
+- The persistent FPGA cache held 168 matrices using 201.6 MB.
+
+### Q4_0 flattened shared engine, 150 MHz hardware candidate
+
+- Branch: `gemm-q4-flatten-f150`
+- Hardware source commit: `102f3eeb6905c5810926258cdfeccb59974ae8ed`
+- Status: C simulation, HLS synthesis, RTL co-simulation, and Vivado
+  implementation passed. Board correctness and performance are pending.
+- One compute pipeline spans all row groups in each activation tile. Final
+  results enter an output stream consumed by a concurrent AXI writer.
+- At N≤8, there is one compute-pipeline run for the entire accelerator job.
+  Both `shared_compute_slots` and `write_shared_output_packets` have final II=1.
+- The 150 MHz implementation uses PL0 period 6.666 ns and meets timing:
+  setup WNS 1.027 ns, TNS 0; hold WHS 0.010 ns, THS 0.
+- The 100 MHz flattened implementation also passed timing and used 51.5
+  Block RAM tiles, 48 DSPs, 9,798 CLB LUTs, and 12,119 CLB registers.
 
 ## Development branch index
 
@@ -62,7 +82,8 @@ continue changing after a design has been validated.
 |---|---|---|
 | `soc-gemv-accel` | Default integration branch and design documentation | Active |
 | `gemv-golden` | Stable golden GEMV design | Validated |
-| `gemm-compiletime-quant` | Compile-time Q8_0/Q4_0 GEMM development | Q8_0 validated |
+| `gemm-compiletime-quant` | Compile-time Q8_0/Q4_0 GEMM development | Q8_0 and grouped Q4_0 board validated |
+| `gemm-q4-flatten-f150` | Flattened Q4_0 shared engine at 150 MHz | HLS/RTL and Vivado passed; board validation pending |
 | `gemv-q4-0` | Q4_0 GEMV development | Needs status documentation |
 | `gemv-q4` | Earlier Q4 development | Needs status documentation |
 | `gemv-activation-quant` | Activation-quantization development | Experimental |
