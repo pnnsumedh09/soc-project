@@ -136,74 +136,151 @@ q4_reduce_4_to_2:
 }
 #endif
 
-static void load_quant_rows(const soc_gemm_word *w_quants,
-                            hls::stream<soc_gemm_word> &q0_fifo,
+static void load_shared_quants(
+                 const soc_gemm_word *w_quants,
+                 hls::stream<soc_gemm_word> q0_fifo[SOC_GEMM_HW_N_TILE],
 #if SOC_GEMM_WEIGHT_BITS == 8
-                            hls::stream<soc_gemm_word> &q1_fifo,
+                 hls::stream<soc_gemm_word> q1_fifo[SOC_GEMM_HW_N_TILE],
 #endif
-                            uint32_t m,
-                            uint32_t nb,
-                            uint32_t n) {
+                 uint32_t m,
+                 uint32_t nb,
+                 uint32_t n) {
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS INLINE off
 #endif
-    uint32_t blocks = m * nb;
-load_quant_tiles:
-    for (uint32_t col_base = 0; col_base < n;
-         col_base += SOC_GEMM_HW_N_TILE) {
+    const bool row_interleaved = n == 1;
+    uint32_t column_tiles =
+        row_interleaved ? 1u : (n + SOC_GEMM_HW_N_TILE - 1) /
+                                     SOC_GEMM_HW_N_TILE;
+
+load_shared_quant_tiles:
+    for (uint32_t tile = 0; tile < column_tiles; ++tile) {
+        uint32_t row_lane = 0;
+        uint32_t block_in_row = 0;
 #if SOC_GEMM_WEIGHT_BITS == 8
-load_quant_beats:
-        for (uint32_t beat = 0; beat < 2 * blocks; ++beat) {
+        uint32_t beats = 2 * m * nb;
+    load_shared_quant_beats:
+        for (uint32_t beat = 0; beat < beats; ++beat) {
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS PIPELINE II=1
 #endif
+            uint32_t target = row_interleaved ? row_lane : 0u;
             soc_gemm_word value = w_quants[beat];
             if ((beat & 1u) == 0) {
-                q0_fifo.write(value);
+                q0_fifo[target].write(value);
             } else {
-                q1_fifo.write(value);
+                q1_fifo[target].write(value);
+                ++block_in_row;
+                if (block_in_row == nb) {
+                    block_in_row = 0;
+                    row_lane = (row_lane + 1) % SOC_GEMM_HW_N_TILE;
+                }
             }
         }
 #else
-load_quant_blocks:
+        uint32_t blocks = m * nb;
+    load_shared_quant_blocks:
         for (uint32_t block = 0; block < blocks; ++block) {
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS PIPELINE II=1
 #endif
-            q0_fifo.write(w_quants[block]);
+            uint32_t target = row_interleaved ? row_lane : 0u;
+            q0_fifo[target].write(w_quants[block]);
+            ++block_in_row;
+            if (block_in_row == nb) {
+                block_in_row = 0;
+                row_lane = (row_lane + 1) % SOC_GEMM_HW_N_TILE;
+            }
         }
 #endif
     }
 }
 
-static void load_scale_rows(const uint16_t *w_scales,
-                            hls::stream<uint16_t> &scale_fifo,
-                            uint32_t m,
-                            uint32_t nb,
-                            uint32_t n) {
+static void load_shared_scales(
+                 const uint16_t *w_scales,
+                 hls::stream<uint16_t> scale_fifo[SOC_GEMM_HW_N_TILE],
+                 uint32_t m,
+                 uint32_t nb,
+                 uint32_t n) {
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS INLINE off
 #endif
-    uint32_t blocks = m * nb;
-load_scale_tiles:
-    for (uint32_t col_base = 0; col_base < n;
-         col_base += SOC_GEMM_HW_N_TILE) {
-load_scale_blocks:
+    const bool row_interleaved = n == 1;
+    uint32_t column_tiles =
+        row_interleaved ? 1u : (n + SOC_GEMM_HW_N_TILE - 1) /
+                                     SOC_GEMM_HW_N_TILE;
+
+load_shared_scale_tiles:
+    for (uint32_t tile = 0; tile < column_tiles; ++tile) {
+        uint32_t row_lane = 0;
+        uint32_t block_in_row = 0;
+        uint32_t blocks = m * nb;
+    load_shared_scale_blocks:
         for (uint32_t block = 0; block < blocks; ++block) {
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS PIPELINE II=1
 #endif
-            scale_fifo.write(w_scales[block]);
+            uint32_t target = row_interleaved ? row_lane : 0u;
+            scale_fifo[target].write(w_scales[block]);
+            ++block_in_row;
+            if (block_in_row == nb) {
+                block_in_row = 0;
+                row_lane = (row_lane + 1) % SOC_GEMM_HW_N_TILE;
+            }
         }
     }
 }
 
-static void compute_all_tiles(
-                 hls::stream<soc_gemm_word> &q0_fifo,
-#if SOC_GEMM_WEIGHT_BITS == 8
-                 hls::stream<soc_gemm_word> &q1_fifo,
+static void load_shared_activation_tile(
+                 const uint8_t *x_native,
+                 soc_gemm_word x_words[SOC_GEMM_HW_N_TILE]
+                                       [2 * SOC_GEMM_HW_MAX_NB],
+                 float x_scales[SOC_GEMM_HW_N_TILE]
+                               [SOC_GEMM_HW_MAX_NB],
+                 uint32_t col_base,
+                 uint32_t active_columns,
+                 uint32_t nb,
+                 bool &bad_x_scale) {
+#ifndef SOC_GEMM_HW_HOST
+#pragma HLS INLINE
 #endif
-                 hls::stream<uint16_t> &scale_fifo,
+load_shared_activation_columns:
+    for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
+        if (lane < active_columns) {
+            uint32_t x_column_base = (col_base + lane) * nb * 34u;
+        load_shared_activation_blocks:
+            for (uint32_t b = 0; b < nb; ++b) {
+                uint32_t base = x_column_base + b * 34u;
+                uint16_t scale = (uint16_t)x_native[base] |
+                                 ((uint16_t)x_native[base + 1] << 8);
+                bool scale_ok = finite_half(scale);
+                if (!scale_ok) {
+                    bad_x_scale = true;
+                }
+                x_scales[lane][b] =
+                    scale_ok ? dot_half_to_float(scale) : 0.0f;
+                for (uint32_t half = 0; half < 2; ++half) {
+                    soc_gemm_word word = 0;
+                    // Vitis HLS 2022.2 crashes if this 128-bit OR reduction
+                    // is unrolled. Keep the byte pack serial.
+                    for (uint32_t j = 0; j < 16; ++j) {
+                        word |= soc_gemm_word(
+                                    x_native[base + 2 + half * 16 + j])
+                                << (8 * j);
+                    }
+                    x_words[lane][2 * b + half] = word;
+                }
+            }
+        }
+    }
+}
+
+static void compute_shared_groups(
+                 hls::stream<soc_gemm_word> q0_fifo[SOC_GEMM_HW_N_TILE],
+#if SOC_GEMM_WEIGHT_BITS == 8
+                 hls::stream<soc_gemm_word> q1_fifo[SOC_GEMM_HW_N_TILE],
+#endif
+                 hls::stream<uint16_t> scale_fifo[SOC_GEMM_HW_N_TILE],
                  const uint8_t *x_native,
                  float *y,
                  uint32_t m,
@@ -219,130 +296,161 @@ static void compute_all_tiles(
 #pragma HLS ARRAY_PARTITION variable=x_words complete dim=1
 #pragma HLS ARRAY_PARTITION variable=x_scales complete dim=1
 #endif
+
+    const bool row_interleaved = n == 1;
+    uint32_t column_tiles =
+        row_interleaved ? 1u : (n + SOC_GEMM_HW_N_TILE - 1) /
+                                     SOC_GEMM_HW_N_TILE;
+    uint32_t groups = row_interleaved
+                          ? (m + SOC_GEMM_HW_N_TILE - 1) /
+                                SOC_GEMM_HW_N_TILE
+                          : column_tiles * m;
     bool bad_x_scale = false;
     bool bad_w_scale = false;
 
-compute_column_tiles:
-    for (uint32_t col_base = 0; col_base < n;
-         col_base += SOC_GEMM_HW_N_TILE) {
-        uint32_t active_columns = n - col_base;
-        if (active_columns > SOC_GEMM_HW_N_TILE) {
-            active_columns = SOC_GEMM_HW_N_TILE;
-        }
+shared_groups:
+    for (uint32_t group = 0; group < groups; ++group) {
+        uint32_t row = 0;
+        uint32_t row_base = 0;
+        uint32_t col_base = 0;
+        uint32_t active_lanes = 0;
+        bool load_activation = false;
+        uint32_t activation_col_base = 0;
+        uint32_t activation_columns = 0;
 
-    compute_load_tile_columns:
-        for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
-            if (lane < active_columns) {
-                uint32_t x_column_base = (col_base + lane) * nb * 34u;
-            compute_load_tile_blocks:
-                for (uint32_t b = 0; b < nb; ++b) {
-                    uint32_t base = x_column_base + b * 34u;
-                    uint16_t scale = (uint16_t)x_native[base] |
-                                     ((uint16_t)x_native[base + 1] << 8);
-                    bool scale_ok = finite_half(scale);
-                    if (!scale_ok) {
-                        bad_x_scale = true;
-                    }
-                    x_scales[lane][b] =
-                        scale_ok ? dot_half_to_float(scale) : 0.0f;
-                    for (uint32_t half = 0; half < 2; ++half) {
-                        soc_gemm_word word = 0;
-                        // Keep this loop serial. Vitis HLS 2022.2 crashes when
-                        // unrolling the loop-carried 128-bit OR reduction.
-                        for (uint32_t j = 0; j < 16; ++j) {
-                            word |= soc_gemm_word(
-                                        x_native[base + 2 + half * 16 + j])
-                                    << (8 * j);
-                        }
-                        x_words[lane][2 * b + half] = word;
-                    }
-                }
+        if (row_interleaved) {
+            row_base = group * SOC_GEMM_HW_N_TILE;
+            active_lanes = m - row_base;
+            if (active_lanes > SOC_GEMM_HW_N_TILE) {
+                active_lanes = SOC_GEMM_HW_N_TILE;
+            }
+            if (group == 0) {
+                load_activation = true;
+                activation_columns = 1;
+            }
+        } else {
+            uint32_t tile = group / m;
+            row = group - tile * m;
+            col_base = tile * SOC_GEMM_HW_N_TILE;
+            active_lanes = n - col_base;
+            if (active_lanes > SOC_GEMM_HW_N_TILE) {
+                active_lanes = SOC_GEMM_HW_N_TILE;
+            }
+            if (row == 0) {
+                load_activation = true;
+                activation_col_base = col_base;
+                activation_columns = active_lanes;
             }
         }
+        if (load_activation) {
+            load_shared_activation_tile(x_native, x_words, x_scales,
+                                        activation_col_base,
+                                        activation_columns, nb,
+                                        bad_x_scale);
+        }
 
-compute_rows:
-        for (uint32_t row = 0; row < m; ++row) {
-            float accum[SOC_GEMM_HW_N_TILE];
+        float accum[SOC_GEMM_HW_N_TILE];
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS ARRAY_PARTITION variable=accum complete
 #endif
-        init_compute_accumulators:
-            for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
+    init_shared_accumulators:
+        for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS UNROLL
 #endif
-                accum[lane] = 0.0f;
-            }
-            // Keep the block-to-block schedule inside one pipeline.  The
-            // previous nested form restarted and drained an eight-iteration
-            // lane pipeline for every block, giving compute_blocks an
-            // effective 32-cycle iteration latency.  A weight block and its
-            // scale are read once at lane zero and retained for lanes 1..7.
-            soc_gemm_word current_w0 = 0;
-#if SOC_GEMM_WEIGHT_BITS == 8
-            soc_gemm_word current_w1 = 0;
-#endif
-            float current_w_scale = 0.0f;
-            bool current_scale_ok = true;
-            uint32_t total_slots = nb * SOC_GEMM_HW_N_TILE;
+            accum[lane] = 0.0f;
+        }
 
-        compute_block_lanes:
-            for (uint32_t slot = 0; slot < total_slots; ++slot) {
+        soc_gemm_word held_w0 = 0;
+#if SOC_GEMM_WEIGHT_BITS == 8
+        soc_gemm_word held_w1 = 0;
+#endif
+        uint16_t held_scale_bits = 0;
+        uint32_t total_slots = nb * SOC_GEMM_HW_N_TILE;
+
+    shared_compute_slots:
+        for (uint32_t slot = 0; slot < total_slots; ++slot) {
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS PIPELINE II=1
 #endif
-                uint32_t lane = slot % SOC_GEMM_HW_N_TILE;
-                uint32_t b = slot / SOC_GEMM_HW_N_TILE;
+            uint32_t lane = slot % SOC_GEMM_HW_N_TILE;
+            uint32_t b = slot / SOC_GEMM_HW_N_TILE;
+            bool active = lane < active_lanes;
+
+            soc_gemm_word selected_w0 = held_w0;
+#if SOC_GEMM_WEIGHT_BITS == 8
+            soc_gemm_word selected_w1 = held_w1;
+#endif
+            uint16_t selected_scale_bits = held_scale_bits;
+
+            if (row_interleaved) {
+                if (active) {
+                    selected_w0 = q0_fifo[lane].read();
+#if SOC_GEMM_WEIGHT_BITS == 8
+                    selected_w1 = q1_fifo[lane].read();
+#endif
+                    selected_scale_bits = scale_fifo[lane].read();
+                }
+            } else {
                 if (lane == 0) {
-                    current_w0 = q0_fifo.read();
+                    held_w0 = q0_fifo[0].read();
 #if SOC_GEMM_WEIGHT_BITS == 8
-                    current_w1 = q1_fifo.read();
+                    held_w1 = q1_fifo[0].read();
 #endif
-                    uint16_t w_scale_bits = scale_fifo.read();
-                    current_scale_ok = finite_half(w_scale_bits);
-                    if (!current_scale_ok) {
-                        bad_w_scale = true;
-                    }
-                    current_w_scale = current_scale_ok
-                                          ? dot_half_to_float(w_scale_bits)
-                                          : 0.0f;
+                    held_scale_bits = scale_fifo[0].read();
                 }
+                selected_w0 = held_w0;
+#if SOC_GEMM_WEIGHT_BITS == 8
+                selected_w1 = held_w1;
+#endif
+                selected_scale_bits = held_scale_bits;
+            }
 
-                // Eight rotating contexts hide FP accumulator latency.  The
-                // rotation now continues directly across block boundaries.
-                float next = accum[0];
-                if (lane < active_columns && current_scale_ok) {
+            bool scale_ok = !active || finite_half(selected_scale_bits);
+            if (active && !scale_ok) {
+                bad_w_scale = true;
+            }
+
+            // This is the only dot-product call site in the runtime-selected
+            // N=1/N>1 schedules. The lane interpretation changes, not the
+            // physical multiplier/reduction and FP accumulation pipeline.
+            float next = accum[0];
+            if (active && scale_ok) {
+                uint32_t x_lane = row_interleaved ? 0u : lane;
 #if SOC_GEMM_WEIGHT_BITS == 8
-                    int32_t sumi =
-                        dot_beat(current_w0, x_words[lane][2 * b]) +
-                        dot_beat(current_w1, x_words[lane][2 * b + 1]);
+                int32_t sumi =
+                    dot_beat(selected_w0, x_words[x_lane][2 * b]) +
+                    dot_beat(selected_w1, x_words[x_lane][2 * b + 1]);
 #else
-                    int32_t sumi =
-                        dot_q4_0_block(current_w0,
-                                       x_words[lane][2 * b],
-                                       x_words[lane][2 * b + 1]);
+                int32_t sumi =
+                    dot_q4_0_block(selected_w0,
+                                   x_words[x_lane][2 * b],
+                                   x_words[x_lane][2 * b + 1]);
 #endif
-                    float scale_product =
-                        current_w_scale * x_scales[lane][b];
-                    float term = (float)sumi * scale_product;
-                    next = next + term;
-                }
-                for (uint32_t i = 0; i < SOC_GEMM_HW_N_TILE - 1; ++i) {
+                float w_scale = dot_half_to_float(selected_scale_bits);
+                float scale_product = w_scale * x_scales[x_lane][b];
+                float term = (float)sumi * scale_product;
+                next = next + term;
+            }
+
+            for (uint32_t i = 0; i < SOC_GEMM_HW_N_TILE - 1; ++i) {
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS UNROLL
 #endif
-                    accum[i] = accum[i + 1];
-                }
-                accum[SOC_GEMM_HW_N_TILE - 1] = next;
+                accum[i] = accum[i + 1];
             }
+            accum[SOC_GEMM_HW_N_TILE - 1] = next;
+        }
 
-        write_compute_tile:
-            for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
+    write_shared_outputs:
+        for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
 #ifndef SOC_GEMM_HW_HOST
 #pragma HLS PIPELINE II=1
 #endif
-                if (lane < active_columns &&
-                    !bad_x_scale && !bad_w_scale) {
+            if (lane < active_lanes && !bad_x_scale && !bad_w_scale) {
+                if (row_interleaved) {
+                    y[row_base + lane] = accum[lane];
+                } else {
                     y[(col_base + lane) * m + row] = accum[lane];
                 }
             }
@@ -356,248 +464,7 @@ compute_rows:
     }
 }
 
-static void load_decode_quants(
-                 const soc_gemm_word *w_quants,
-                 hls::stream<soc_gemm_word> q0_fifo[SOC_GEMM_HW_N_TILE],
-#if SOC_GEMM_WEIGHT_BITS == 8
-                 hls::stream<soc_gemm_word> q1_fifo[SOC_GEMM_HW_N_TILE],
-#endif
-                 uint32_t m,
-                 uint32_t nb) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS INLINE off
-#endif
-    uint32_t lane = 0;
-    uint32_t block_in_row = 0;
-#if SOC_GEMM_WEIGHT_BITS == 8
-    uint32_t beats = 2 * m * nb;
-load_decode_quant_beats:
-    for (uint32_t beat = 0; beat < beats; ++beat) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS PIPELINE II=1
-#endif
-        soc_gemm_word value = w_quants[beat];
-        if ((beat & 1u) == 0) {
-            q0_fifo[lane].write(value);
-        } else {
-            q1_fifo[lane].write(value);
-            ++block_in_row;
-            if (block_in_row == nb) {
-                block_in_row = 0;
-                lane = (lane + 1) % SOC_GEMM_HW_N_TILE;
-            }
-        }
-    }
-#else
-    uint32_t blocks = m * nb;
-load_decode_quant_blocks:
-    for (uint32_t block = 0; block < blocks; ++block) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS PIPELINE II=1
-#endif
-        q0_fifo[lane].write(w_quants[block]);
-        ++block_in_row;
-        if (block_in_row == nb) {
-            block_in_row = 0;
-            lane = (lane + 1) % SOC_GEMM_HW_N_TILE;
-        }
-    }
-#endif
-}
-
-static void load_decode_scales(
-                 const uint16_t *w_scales,
-                 hls::stream<uint16_t> scale_fifo[SOC_GEMM_HW_N_TILE],
-                 uint32_t m,
-                 uint32_t nb) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS INLINE off
-#endif
-    uint32_t lane = 0;
-    uint32_t block_in_row = 0;
-    uint32_t blocks = m * nb;
-load_decode_scale_blocks:
-    for (uint32_t block = 0; block < blocks; ++block) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS PIPELINE II=1
-#endif
-        scale_fifo[lane].write(w_scales[block]);
-        ++block_in_row;
-        if (block_in_row == nb) {
-            block_in_row = 0;
-            lane = (lane + 1) % SOC_GEMM_HW_N_TILE;
-        }
-    }
-}
-
-static void compute_decode_rows(
-                 hls::stream<soc_gemm_word> q0_fifo[SOC_GEMM_HW_N_TILE],
-#if SOC_GEMM_WEIGHT_BITS == 8
-                 hls::stream<soc_gemm_word> q1_fifo[SOC_GEMM_HW_N_TILE],
-#endif
-                 hls::stream<uint16_t> scale_fifo[SOC_GEMM_HW_N_TILE],
-                 const uint8_t *x_native,
-                 float *y,
-                 uint32_t m,
-                 uint32_t nb,
-                 uint32_t &status) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS INLINE off
-#endif
-    soc_gemm_word x_words[2 * SOC_GEMM_HW_MAX_NB];
-    float x_scales[SOC_GEMM_HW_MAX_NB];
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS ARRAY_PARTITION variable=x_words cyclic factor=2 dim=1
-#endif
-    bool bad_x_scale = false;
-    bool bad_w_scale = false;
-
-load_decode_activation:
-    for (uint32_t b = 0; b < nb; ++b) {
-        uint32_t base = b * 34u;
-        uint16_t scale = (uint16_t)x_native[base] |
-                         ((uint16_t)x_native[base + 1] << 8);
-        bool scale_ok = finite_half(scale);
-        if (!scale_ok) {
-            bad_x_scale = true;
-        }
-        x_scales[b] = scale_ok ? dot_half_to_float(scale) : 0.0f;
-        for (uint32_t half = 0; half < 2; ++half) {
-            soc_gemm_word word = 0;
-            for (uint32_t j = 0; j < 16; ++j) {
-                word |= soc_gemm_word(x_native[base + 2 + half * 16 + j])
-                        << (8 * j);
-            }
-            x_words[2 * b + half] = word;
-        }
-    }
-
-decode_row_groups:
-    for (uint32_t row_base = 0; row_base < m;
-         row_base += SOC_GEMM_HW_N_TILE) {
-        uint32_t active_rows = m - row_base;
-        if (active_rows > SOC_GEMM_HW_N_TILE) {
-            active_rows = SOC_GEMM_HW_N_TILE;
-        }
-        float accum[SOC_GEMM_HW_N_TILE];
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS ARRAY_PARTITION variable=accum complete
-#endif
-    init_decode_accumulators:
-        for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS UNROLL
-#endif
-            accum[lane] = 0.0f;
-        }
-
-        uint32_t total_slots = nb * SOC_GEMM_HW_N_TILE;
-    compute_decode_block_rows:
-        for (uint32_t slot = 0; slot < total_slots; ++slot) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS PIPELINE II=1
-#endif
-            uint32_t lane = slot % SOC_GEMM_HW_N_TILE;
-            uint32_t b = slot / SOC_GEMM_HW_N_TILE;
-            float next = accum[0];
-            if (lane < active_rows) {
-                soc_gemm_word w0 = q0_fifo[lane].read();
-#if SOC_GEMM_WEIGHT_BITS == 8
-                soc_gemm_word w1 = q1_fifo[lane].read();
-#endif
-                uint16_t w_scale_bits = scale_fifo[lane].read();
-                bool scale_ok = finite_half(w_scale_bits);
-                if (!scale_ok) {
-                    bad_w_scale = true;
-                }
-                if (scale_ok) {
-#if SOC_GEMM_WEIGHT_BITS == 8
-                    int32_t sumi =
-                        dot_beat(w0, x_words[2 * b]) +
-                        dot_beat(w1, x_words[2 * b + 1]);
-#else
-                    int32_t sumi =
-                        dot_q4_0_block(w0, x_words[2 * b],
-                                      x_words[2 * b + 1]);
-#endif
-                    float scale_product =
-                        dot_half_to_float(w_scale_bits) * x_scales[b];
-                    float term = (float)sumi * scale_product;
-                    next = next + term;
-                }
-            }
-            for (uint32_t i = 0; i < SOC_GEMM_HW_N_TILE - 1; ++i) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS UNROLL
-#endif
-                accum[i] = accum[i + 1];
-            }
-            accum[SOC_GEMM_HW_N_TILE - 1] = next;
-        }
-
-    write_decode_rows:
-        for (uint32_t lane = 0; lane < SOC_GEMM_HW_N_TILE; ++lane) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS PIPELINE II=1
-#endif
-            if (lane < active_rows && !bad_x_scale && !bad_w_scale) {
-                y[row_base + lane] = accum[lane];
-            }
-        }
-    }
-
-    if (bad_x_scale) {
-        status = SOC_GEMM_HW_BAD_X_SCALE;
-    } else if (bad_w_scale) {
-        status = SOC_GEMM_HW_BAD_W_SCALE;
-    }
-}
-
-static void run_decode_dataflow(
-                 const soc_gemm_word *w_quants,
-                 const uint16_t *w_scales,
-                 const uint8_t *x_native,
-                 float *y,
-                 uint32_t m,
-                 uint32_t nb,
-                 uint32_t &status) {
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS INLINE off
-#pragma HLS DATAFLOW
-#endif
-    // Eight lane FIFOs, each holding two maximum-width rows, retain the same
-    // total sixteen-row prefetch capacity while transposing row-major input
-    // into block-major, row-interleaved compute order.
-    hls::stream<soc_gemm_word> q0_fifo[SOC_GEMM_HW_N_TILE];
-#if SOC_GEMM_WEIGHT_BITS == 8
-    hls::stream<soc_gemm_word> q1_fifo[SOC_GEMM_HW_N_TILE];
-#endif
-    hls::stream<uint16_t> scale_fifo[SOC_GEMM_HW_N_TILE];
-#ifndef SOC_GEMM_HW_HOST
-#pragma HLS ARRAY_PARTITION variable=q0_fifo complete dim=1
-#pragma HLS STREAM variable=q0_fifo depth=304
-#if SOC_GEMM_WEIGHT_BITS == 8
-#pragma HLS ARRAY_PARTITION variable=q1_fifo complete dim=1
-#pragma HLS STREAM variable=q1_fifo depth=304
-#endif
-#pragma HLS ARRAY_PARTITION variable=scale_fifo complete dim=1
-#pragma HLS STREAM variable=scale_fifo depth=304
-#endif
-
-    load_decode_quants(w_quants, q0_fifo,
-#if SOC_GEMM_WEIGHT_BITS == 8
-                       q1_fifo,
-#endif
-                       m, nb);
-    load_decode_scales(w_scales, scale_fifo, m, nb);
-    compute_decode_rows(q0_fifo,
-#if SOC_GEMM_WEIGHT_BITS == 8
-                        q1_fifo,
-#endif
-                        scale_fifo, x_native, y, m, nb, status);
-}
-
-static void run_weight_dataflow(
+static void run_shared_dataflow(
                  const soc_gemm_word *w_quants,
                  const uint16_t *w_scales,
                  const uint8_t *x_native,
@@ -610,31 +477,37 @@ static void run_weight_dataflow(
 #pragma HLS INLINE off
 #pragma HLS DATAFLOW
 #endif
-    // At the maximum row width, 2432 entries hold sixteen complete rows.
-    hls::stream<soc_gemm_word> q0_fifo;
+    // One physical FIFO set feeds both schedules. Each lane can hold two
+    // maximum-width rows. This preserves the known-good prefetch capacity
+    // while eliminating the second DATAFLOW network; depth reduction is the
+    // next isolated area experiment.
+    hls::stream<soc_gemm_word> q0_fifo[SOC_GEMM_HW_N_TILE];
 #if SOC_GEMM_WEIGHT_BITS == 8
-    hls::stream<soc_gemm_word> q1_fifo;
+    hls::stream<soc_gemm_word> q1_fifo[SOC_GEMM_HW_N_TILE];
 #endif
-    hls::stream<uint16_t> scale_fifo;
+    hls::stream<uint16_t> scale_fifo[SOC_GEMM_HW_N_TILE];
 #ifndef SOC_GEMM_HW_HOST
-#pragma HLS STREAM variable=q0_fifo depth=2432
+#pragma HLS ARRAY_PARTITION variable=q0_fifo complete dim=1
+#pragma HLS STREAM variable=q0_fifo depth=152
 #if SOC_GEMM_WEIGHT_BITS == 8
-#pragma HLS STREAM variable=q1_fifo depth=2432
+#pragma HLS ARRAY_PARTITION variable=q1_fifo complete dim=1
+#pragma HLS STREAM variable=q1_fifo depth=152
 #endif
-#pragma HLS STREAM variable=scale_fifo depth=2432
+#pragma HLS ARRAY_PARTITION variable=scale_fifo complete dim=1
+#pragma HLS STREAM variable=scale_fifo depth=152
 #endif
 
-    load_quant_rows(w_quants, q0_fifo,
+    load_shared_quants(w_quants, q0_fifo,
 #if SOC_GEMM_WEIGHT_BITS == 8
-                    q1_fifo,
+                       q1_fifo,
 #endif
-                    m, nb, n);
-    load_scale_rows(w_scales, scale_fifo, m, nb, n);
-    compute_all_tiles(q0_fifo,
+                       m, nb, n);
+    load_shared_scales(w_scales, scale_fifo, m, nb, n);
+    compute_shared_groups(q0_fifo,
 #if SOC_GEMM_WEIGHT_BITS == 8
-                      q1_fifo,
+                          q1_fifo,
 #endif
-                      scale_fifo, x_native, y, m, nb, n, status);
+                          scale_fifo, x_native, y, m, nb, n, status);
 }
 
 void soc_gemm_hw(const soc_gemm_word *w_quants,
@@ -667,14 +540,8 @@ void soc_gemm_hw(const soc_gemm_word *w_quants,
         return;
     }
 
-    // Start the dataflow network once. Each process loops over every
-    // eight-column tile internally, so the generated hardware does not need
-    // to restart a dataflow submodule between tiles.
-    if (n == 1) {
-        run_decode_dataflow(w_quants, w_scales, x_native, y,
-                            m, nb, status);
-    } else {
-        run_weight_dataflow(w_quants, w_scales, x_native, y,
-                            m, nb, n, status);
-    }
+    // One DATAFLOW network and one flattened dot-product pipeline serve both
+    // schedules. For N=1 the eight contexts are rows; for N>1 they are columns.
+    run_shared_dataflow(w_quants, w_scales, x_native, y,
+                        m, nb, n, status);
 }
