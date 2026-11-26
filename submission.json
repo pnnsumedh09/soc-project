@@ -2,9 +2,9 @@
   "schema_version": 1,
   "bitstream": {
     "bitstream_path": "soc/hw/out/gemm_q4_f100_b64_o8.bit",
-    "bitstream_sha256": "a2f46227c51c343d607abf24333bf6de36ad365452e6ce7d7b23bc02812d3a74",
+    "bitstream_sha256": "79196fc4883bfb371396e36e1d7f84375dee2ae7ed7db29e004ae088d45da3cd",
     "hwh_path": "soc/hw/out/gemm_q4_f100_b64_o8.hwh",
-    "hwh_sha256": "f78867958ab3728ae96b555085abd9f3ae4cc8997357bc3cb7cfb581b6ea960b"
+    "hwh_sha256": "e4447b8aff09e20dd613150d6ce39f2e148e7e98c3d054ea471030429352d39f"
   },
   "model": {
     "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf",
