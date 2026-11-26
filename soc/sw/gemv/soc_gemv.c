@@ -81,8 +81,8 @@ static void init_once(void)
 {
     g_enabled     = env_flag("SOC_GEMV", 1);
     g_verify      = env_flag("SOC_GEMV_VERIFY", 0);
-    g_print_stats = env_flag("SOC_GEMV_STATS", 0);
-    g_strict      = env_flag("SOC_GEMV_STRICT", 0);
+    g_print_stats = env_flag("SOC_GEMV_STATS", 1);
+    g_strict      = env_flag("SOC_GEMV_STRICT", 1);
 
     const char *name = getenv("SOC_GEMV_BACKEND");
     if (!name || !*name) {
