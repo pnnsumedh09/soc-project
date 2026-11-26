@@ -1,0 +1,405 @@
+
+
+================================================================
+== Synthesis Summary Report of 'soc_gemm_hw'
+================================================================
++ General Information: 
+    * Date:           Wed Nov 25 04:07:28 2026
+    * Version:        2022.2 (Build 3670227 on Oct 13 2022)
+    * Project:        q4_f150_b64_o8
+    * Solution:       solution (Vivado IP Flow Target)
+    * Product family: zynquplus
+    * Target device:  xczu3eg-sbva484-1-i
+    
+
++ Performance & Resource Estimates: 
+    
+    PS: '+' for module; 'o' for loop; '*' for dataflow
+    +---------------------------------------------------------------------+--------+-------+-------------+-----------+-----------+-------------+-------------+----------+-----------+---------+-------------+-------------+-----+
+    |                               Modules                               |  Issue |       |   Latency   |  Latency  | Iteration |             |     Trip    |          |           |         |             |             |     |
+    |                               & Loops                               |  Type  | Slack |   (cycles)  |    (ns)   |  Latency  |   Interval  |    Count    | Pipelined|   BRAM    |   DSP   |      FF     |     LUT     | URAM|
+    +---------------------------------------------------------------------+--------+-------+-------------+-----------+-----------+-------------+-------------+----------+-----------+---------+-------------+-------------+-----+
+    |+ soc_gemm_hw                                                        |  Timing|  -0.07|            -|          -|          -|            -|            -|        no|  148 (34%)|  35 (9%)|  14691 (10%)|  15490 (21%)|    -|
+    | + run_shared_dataflow*                                              |       -|   0.00|            -|          -|          -|            -|            -|  dataflow|  148 (34%)|  35 (9%)|   10917 (7%)|   9929 (14%)|    -|
+    |  + entry_proc                                                       |       -|   2.70|            0|      0.000|          -|            0|            -|        no|          -|        -|      2 (~0%)|     20 (~0%)|    -|
+    |  + run_shared_dataflow_Block_entry4_proc                            |       -|   3.83|            4|     26.668|          -|            4|            -|        no|          -|  1 (~0%)|     59 (~0%)|    134 (~0%)|    -|
+    |  + load_shared_quants                                               |       -|   0.00|  11824267281|  7.883e+10|          -|  11824267281|            -|        no|          -|  2 (~0%)|    575 (~0%)|     737 (1%)|    -|
+    |   + load_shared_quants_Pipeline_load_shared_quant_blocks            |       -|   0.00|  11824267274|  7.883e+10|          -|  11824267274|            -|        no|          -|        -|    442 (~0%)|    546 (~0%)|    -|
+    |    o load_shared_quant_tiles_load_shared_quant_blocks               |       -|   4.87|  11824267272|  7.883e+10|         10|            1|  11824267264|       yes|          -|        -|            -|            -|    -|
+    |  + load_shared_scales                                               |       -|   0.00|  11824267281|  7.883e+10|          -|  11824267281|            -|        no|          -|  2 (~0%)|    466 (~0%)|     737 (1%)|    -|
+    |   + load_shared_scales_Pipeline_load_shared_scale_blocks            |       -|   0.00|  11824267274|  7.883e+10|          -|  11824267274|            -|        no|          -|        -|    330 (~0%)|    546 (~0%)|    -|
+    |    o load_shared_scale_tiles_load_shared_scale_blocks               |       -|   4.87|  11824267272|  7.883e+10|         10|            1|  11824267264|       yes|          -|        -|            -|            -|    -|
+    |  + compute_shared_groups                                            |       -|   0.00|  94615393284|  6.308e+11|          -|  94615393284|            -|        no|   72 (16%)|  30 (8%)|    6592 (4%)|    6806 (9%)|    -|
+    |   o shared_activation_tiles                                         |       -|   4.87|  94615393280|  6.308e+11|  184795690|            -|          512|        no|          -|        -|            -|            -|    -|
+    |    + compute_shared_groups_Pipeline_shared_compute_slots            |       -|   0.20|    184754202|  1.232e+09|          -|    184754202|            -|        no|          -|  28 (7%)|    5417 (3%)|    4276 (6%)|    -|
+    |     o shared_compute_slots                                          |       -|   4.87|    184754200|  1.232e+09|         26|            1|    184754176|       yes|          -|        -|            -|            -|    -|
+    |      + dot_half_to_float                                            |      II|   0.29|            1|      6.667|          -|            1|            -|       yes|          -|        -|     53 (~0%)|    355 (~0%)|    -|
+    |    o load_shared_activation_columns                                 |       -|   4.87|        41480|  2.765e+05|       5185|            -|            8|        no|          -|        -|            -|            -|    -|
+    |     + compute_shared_groups_Pipeline_load_shared_activation_blocks  |       -|   0.00|         5182|  3.455e+04|          -|         5182|            -|        no|          -|        -|    391 (~0%)|     815 (1%)|    -|
+    |      o load_shared_activation_blocks                                |      II|   4.87|         5180|  3.454e+04|         43|           34|          152|       yes|          -|        -|            -|            -|    -|
+    |       + dot_half_to_float                                           |      II|   0.29|            1|      6.667|          -|            1|            -|       yes|          -|        -|     53 (~0%)|    355 (~0%)|    -|
+    |  + write_shared_outputs                                             |       -|   0.00|            -|          -|          -|            -|            -|        no|          -|        -|    309 (~0%)|    330 (~0%)|    -|
+    |   + write_shared_outputs_Pipeline_write_shared_output_packets       |       -|   0.00|            -|          -|          -|            -|            -|        no|          -|        -|    240 (~0%)|    254 (~0%)|    -|
+    |    o write_shared_output_packets                                    |       -|   4.87|            -|          -|          9|            1|            -|       yes|          -|        -|            -|            -|    -|
+    +---------------------------------------------------------------------+--------+-------+-------------+-----------+-----------+-------------+-------------+----------+-----------+---------+-------------+-------------+-----+
+
+
+================================================================
+== HW Interfaces
+================================================================
+* M_AXI
++------------------+------------+---------------+---------+--------+----------+-----------+--------------+--------------+-------------+-------------+
+| Interface        | Data Width | Address Width | Latency | Offset | Register | Max Widen | Max Read     | Max Write    | Num Read    | Num Write   |
+|                  | (SW->HW)   |               |         |        |          | Bitwidth  | Burst Length | Burst Length | Outstanding | Outstanding |
++------------------+------------+---------------+---------+--------+----------+-----------+--------------+--------------+-------------+-------------+
+| m_axi_activation | 8 -> 8     | 64            | 0       | slave  | 0        | 32        | 16           | 2            | 4           | 1           |
+| m_axi_output_r   | 32 -> 32   | 64            | 0       | slave  | 0        | 32        | 2            | 16           | 1           | 2           |
+| m_axi_scales     | 16 -> 16   | 64            | 0       | slave  | 0        | 128       | 64           | 2            | 8           | 1           |
+| m_axi_weights    | 128 -> 128 | 64            | 0       | slave  | 0        | 128       | 64           | 2            | 8           | 1           |
++------------------+------------+---------------+---------+--------+----------+-----------+--------------+--------------+-------------+-------------+
+
+* S_AXILITE Interfaces
++---------------+------------+---------------+--------+----------+
+| Interface     | Data Width | Address Width | Offset | Register |
++---------------+------------+---------------+--------+----------+
+| s_axi_control | 32         | 7             | 16     | 0        |
++---------------+------------+---------------+--------+----------+
+
+* S_AXILITE Registers
++---------------+-------------+--------+-------+--------+----------------------------------+----------------------------------------------------------------------+
+| Interface     | Register    | Offset | Width | Access | Description                      | Bit Fields                                                           |
++---------------+-------------+--------+-------+--------+----------------------------------+----------------------------------------------------------------------+
+| s_axi_control | CTRL        | 0x00   | 32    | RW     | Control signals                  | 0=AP_START 1=AP_DONE 2=AP_IDLE 3=AP_READY 7=AUTO_RESTART 9=INTERRUPT |
+| s_axi_control | GIER        | 0x04   | 32    | RW     | Global Interrupt Enable Register | 0=Enable                                                             |
+| s_axi_control | IP_IER      | 0x08   | 32    | RW     | IP Interrupt Enable Register     | 0=CHAN0_INT_EN 1=CHAN1_INT_EN                                        |
+| s_axi_control | IP_ISR      | 0x0c   | 32    | RW     | IP Interrupt Status Register     | 0=CHAN0_INT_ST 1=CHAN1_INT_ST                                        |
+| s_axi_control | w_quants_1  | 0x10   | 32    | W      | Data signal of w_quants          |                                                                      |
+| s_axi_control | w_quants_2  | 0x14   | 32    | W      | Data signal of w_quants          |                                                                      |
+| s_axi_control | w_scales_1  | 0x20   | 32    | W      | Data signal of w_scales          |                                                                      |
+| s_axi_control | w_scales_2  | 0x24   | 32    | W      | Data signal of w_scales          |                                                                      |
+| s_axi_control | x_native_1  | 0x30   | 32    | W      | Data signal of x_native          |                                                                      |
+| s_axi_control | x_native_2  | 0x34   | 32    | W      | Data signal of x_native          |                                                                      |
+| s_axi_control | y_1         | 0x40   | 32    | W      | Data signal of y                 |                                                                      |
+| s_axi_control | y_2         | 0x44   | 32    | W      | Data signal of y                 |                                                                      |
+| s_axi_control | m           | 0x50   | 32    | W      | Data signal of m                 |                                                                      |
+| s_axi_control | nb          | 0x58   | 32    | W      | Data signal of nb                |                                                                      |
+| s_axi_control | n           | 0x60   | 32    | W      | Data signal of n                 |                                                                      |
+| s_axi_control | status      | 0x68   | 32    | R      | Data signal of status            |                                                                      |
+| s_axi_control | status_ctrl | 0x6c   | 32    | R      | Control signal of status         | 0=status_ap_vld                                                      |
++---------------+-------------+--------+-------+--------+----------------------------------+----------------------------------------------------------------------+
+
+* TOP LEVEL CONTROL
++-----------+------------+-----------+
+| Interface | Type       | Ports     |
++-----------+------------+-----------+
+| ap_clk    | clock      | ap_clk    |
+| ap_rst_n  | reset      | ap_rst_n  |
+| interrupt | interrupt  | interrupt |
+| ap_ctrl   | ap_ctrl_hs |           |
++-----------+------------+-----------+
+
+
+================================================================
+== SW I/O Information
+================================================================
+* Top Function Arguments
++----------+-----------+------------------------+
+| Argument | Direction | Datatype               |
++----------+-----------+------------------------+
+| w_quants | in        | ap_uint<128> const *   |
+| w_scales | in        | unsigned short const * |
+| x_native | in        | unsigned char const *  |
+| y        | out       | float*                 |
+| m        | in        | unsigned int           |
+| nb       | in        | unsigned int           |
+| n        | in        | unsigned int           |
+| status   | out       | unsigned int&          |
++----------+-----------+------------------------+
+
+* SW-to-HW Mapping
++----------+------------------+-----------+----------+---------------------------------------+
+| Argument | HW Interface     | HW Type   | HW Usage | HW Info                               |
++----------+------------------+-----------+----------+---------------------------------------+
+| w_quants | m_axi_weights    | interface |          |                                       |
+| w_quants | s_axi_control    | register  | offset   | name=w_quants_1 offset=0x10 range=32  |
+| w_quants | s_axi_control    | register  | offset   | name=w_quants_2 offset=0x14 range=32  |
+| w_scales | m_axi_scales     | interface |          |                                       |
+| w_scales | s_axi_control    | register  | offset   | name=w_scales_1 offset=0x20 range=32  |
+| w_scales | s_axi_control    | register  | offset   | name=w_scales_2 offset=0x24 range=32  |
+| x_native | m_axi_activation | interface |          |                                       |
+| x_native | s_axi_control    | register  | offset   | name=x_native_1 offset=0x30 range=32  |
+| x_native | s_axi_control    | register  | offset   | name=x_native_2 offset=0x34 range=32  |
+| y        | m_axi_output_r   | interface |          |                                       |
+| y        | s_axi_control    | register  | offset   | name=y_1 offset=0x40 range=32         |
+| y        | s_axi_control    | register  | offset   | name=y_2 offset=0x44 range=32         |
+| m        | s_axi_control    | register  |          | name=m offset=0x50 range=32           |
+| nb       | s_axi_control    | register  |          | name=nb offset=0x58 range=32          |
+| n        | s_axi_control    | register  |          | name=n offset=0x60 range=32           |
+| status   | s_axi_control    | register  |          | name=status offset=0x68 range=32      |
+| status   | s_axi_control    | register  |          | name=status_ctrl offset=0x6c range=32 |
++----------+------------------+-----------+----------+---------------------------------------+
+
+
+================================================================
+== M_AXI Burst Information
+================================================================
+ Note: All burst requests might be further partitioned into multiple requests during RTL generation based on max_read_burst_length or max_write_burst_length settings.
+
+* Inferred Burst Summary
++------------------+--------------------------+-----------+----------+-------+------------------------------------------------------------------------------+
+| HW Interface     | Loop                     | Direction | Length   | Width | Location                                                                     |
++------------------+--------------------------+-----------+----------+-------+------------------------------------------------------------------------------+
+| m_axi_weights    | load_shared_quant_blocks | read      | variable | 128   | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:183:9  |
+| m_axi_scales     | load_shared_scale_blocks | read      | variable | 16    | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:219:9  |
+| m_axi_activation |                          | read      | 2        | 8     | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:254:44 |
+| m_axi_activation | VITIS_LOOP_262_1         | read      | 32       | 8     | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:262:35 |
++------------------+--------------------------+-----------+----------+-------+------------------------------------------------------------------------------+
+
+* Inferred Bursts and Widening Missed
++------------------+----------+-------------------------------+----------------------------------------------------------------------------------------------------------+------------+------------------------------------------------------------------------------+
+| HW Interface     | Variable | Loop                          | Problem                                                                                                  | Resolution | Location                                                                     |
++------------------+----------+-------------------------------+----------------------------------------------------------------------------------------------------------+------------+------------------------------------------------------------------------------+
+| m_axi_output     | y        | write_shared_output_packets   | Access store is in the conditional branch                                                                | 214-232    | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:463:5  |
+| m_axi_weights    | w_quants | load_shared_quant_tiles       | Could not analyze pattern                                                                                | 214-229    | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:157:5  |
+| m_axi_scales     | w_scales | load_shared_scale_tiles       | Could not analyze pattern                                                                                | 214-229    | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:214:5  |
+| m_axi_activation | x_native | load_shared_activation_blocks | Stride is incompatible                                                                                   | 214-230    | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:252:13 |
+| m_axi_activation | x_native | load_shared_activation_blocks | Stride is incompatible                                                                                   | 214-230    | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:252:13 |
+| m_axi_weights    | w_quants | load_shared_quant_blocks      | Could not widen since type i128 size is greater than or equal to the max_widen_bitwidth threshold of 128 | 214-353    | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:183:9  |
+| m_axi_scales     | w_scales | load_shared_scale_blocks      | Could not widen since type i16 size is greater than or equal to alignment 1(bytes)                       | 214-307    | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:219:9  |
+| m_axi_activation | x_native | VITIS_LOOP_266_2              | Could not widen since type i8 size is greater than or equal to alignment 1(bytes)                        | 214-307    | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:266:39 |
+| m_axi_activation | x_native |                               | Could not widen since type i8 size is greater than or equal to alignment 1(bytes)                        | 214-307    | /misc/scratch/np26753/project/soc-project-golden/soc/hw/gemm/gemm.cpp:254:44 |
++------------------+----------+-------------------------------+----------------------------------------------------------------------------------------------------------+------------+------------------------------------------------------------------------------+
+
+    * Resolution URL: www.xilinx.com/cgi-bin/docs/rdoc?v=2022.2;t=hls+guidance;d=XXX-YYY.html (replace XXX-YYY with column value)
+
+================================================================
+== Bind Op Report
+================================================================
++-------------------------------------------------------------------+-----+--------+----------------------------+------+--------+---------+
+| Name                                                              | DSP | Pragma | Variable                   | Op   | Impl   | Latency |
++-------------------------------------------------------------------+-----+--------+----------------------------+------+--------+---------+
+| + soc_gemm_hw                                                     | 35  |        |                            |      |        |         |
+|  + run_shared_dataflow                                            | 35  |        |                            |      |        |         |
+|    output_packets_loc_channel_U                                   | 1   |        | output_packets_loc_channel | fifo | srl    | 0       |
+|   + run_shared_dataflow_Block_entry4_proc                         | 1   |        |                            |      |        |         |
+|     add_ln513_fu_66_p2                                            | -   |        | add_ln513                  | add  | fabric | 0       |
+|     add_ln510_fu_46_p2                                            | -   |        | add_ln510                  | add  | fabric | 0       |
+|     mul_mul_10ns_18ns_27_4_1_U3                                   | 1   |        | mul_ln508                  | mul  | dsp48  | 3       |
+|   + load_shared_quants                                            | 2   |        |                            |      |        |         |
+|     add_ln153_fu_148_p2                                           | -   |        | add_ln153                  | add  | fabric | 0       |
+|     mul_mul_8ns_18ns_26_4_1_U22                                   | 1   |        | blocks                     | mul  | dsp48  | 3       |
+|     mul_mul_10ns_26ns_36_4_1_U23                                  | 1   |        | bound                      | mul  | dsp48  | 3       |
+|    + load_shared_quants_Pipeline_load_shared_quant_blocks         | 0   |        |                            |      |        |         |
+|      add_ln157_fu_289_p2                                          | -   |        | add_ln157                  | add  | fabric | 0       |
+|      add_ln189_fu_328_p2                                          | -   |        | add_ln189                  | add  | fabric | 0       |
+|      row_lane_3_fu_347_p2                                         | -   |        | row_lane_3                 | add  | fabric | 0       |
+|      add_ln183_fu_373_p2                                          | -   |        | add_ln183                  | add  | fabric | 0       |
+|   + load_shared_scales                                            | 2   |        |                            |      |        |         |
+|     add_ln210_fu_146_p2                                           | -   |        | add_ln210                  | add  | fabric | 0       |
+|     mul_mul_8ns_18ns_26_4_1_U54                                   | 1   |        | blocks                     | mul  | dsp48  | 3       |
+|     mul_mul_10ns_26ns_36_4_1_U55                                  | 1   |        | bound                      | mul  | dsp48  | 3       |
+|    + load_shared_scales_Pipeline_load_shared_scale_blocks         | 0   |        |                            |      |        |         |
+|      add_ln214_fu_289_p2                                          | -   |        | add_ln214                  | add  | fabric | 0       |
+|      add_ln225_fu_328_p2                                          | -   |        | add_ln225                  | add  | fabric | 0       |
+|      row_lane_1_fu_347_p2                                         | -   |        | row_lane_1                 | add  | fabric | 0       |
+|      add_ln219_fu_373_p2                                          | -   |        | add_ln219                  | add  | fabric | 0       |
+|   + compute_shared_groups                                         | 30  |        |                            |      |        |         |
+|     add_ln308_fu_487_p2                                           | -   |        | add_ln308                  | add  | fabric | 0       |
+|     sub23_fu_438_p2                                               | -   |        | sub23                      | add  | fabric | 0       |
+|     mul_mul_18ns_8ns_25_4_1_U205                                  | 1   |        | total_slots910             | mul  | dsp48  | 3       |
+|     add_ln248_1_fu_534_p2                                         | -   |        | add_ln248_1                | add  | fabric | 0       |
+|     tile_2_fu_573_p2                                              | -   |        | tile_2                     | add  | fabric | 0       |
+|     sub_ln322_fu_602_p2                                           | -   |        | sub_ln322                  | sub  | fabric | 0       |
+|     mul_mul_13ns_13ns_25_4_1_U206                                 | 1   |        | mul_ln248                  | mul  | dsp48  | 3       |
+|     add_ln248_fu_647_p2                                           | -   |        | add_ln248                  | add  | fabric | 0       |
+|     mul_13ns_4ns_16_1_1_U204                                      | -   |        | mul_ln249                  | mul  | auto   | 0       |
+|     add_ln253_4_fu_684_p2                                         | -   |        | add_ln253_4                | add  | fabric | 0       |
+|     add_ln253_fu_689_p2                                           | -   |        | add_ln253                  | add  | fabric | 0       |
+|    + compute_shared_groups_Pipeline_load_shared_activation_blocks | 0   |        |                            |      |        |         |
+|      add_ln252_fu_722_p2                                          | -   |        | add_ln252                  | add  | fabric | 0       |
+|      add_ln253_fu_626_p2                                          | -   |        | add_ln253                  | add  | fabric | 0       |
+|      add_ln253_4_fu_652_p2                                        | -   |        | add_ln253_4                | add  | fabric | 0       |
+|      add_ln253_3_fu_662_p2                                        | -   |        | add_ln253_3                | add  | fabric | 0       |
+|     + dot_half_to_float (grp_dot_half_to_float_fu_519)            | 0   |        |                            |      |        |         |
+|       add_ln22_fu_168_p2                                          | -   |        | add_ln22                   | add  | fabric | 0       |
+|       sub_ln34_fu_392_p2                                          | -   |        | sub_ln34                   | sub  | fabric | 0       |
+|    + compute_shared_groups_Pipeline_shared_compute_slots          | 28  |        |                            |      |        |         |
+|      slot_2_fu_1115_p2                                            | -   |        | slot_2                     | add  | fabric | 0       |
+|      sub_ln352_fu_1127_p2                                         | -   |        | sub_ln352                  | sub  | fabric | 0       |
+|      mac_muladd_9s_4s_14s_14_4_1_U119                             | 1   |        | mul_ln112                  | mul  | dsp48  | 3       |
+|      mul_9s_4s_13_1_1_U106                                        | -   |        | mul_ln112_1                | mul  | auto   | 0       |
+|      mul_9s_4s_13_1_1_U101                                        | -   |        | mul_ln112_2                | mul  | auto   | 0       |
+|      mac_muladd_9s_4s_13s_14_4_1_U123                             | 1   |        | mul_ln112_3                | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_14s_15_4_1_U124                             | 1   |        | mul_ln112_4                | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U125                             | 1   |        | mul_ln112_5                | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U114                             | 1   |        | mul_ln112_6                | mul  | dsp48  | 3       |
+|      mul_9s_4s_13_1_1_U107                                        | -   |        | mul_ln112_7                | mul  | auto   | 0       |
+|      mac_muladd_9s_4s_14s_16_4_1_U120                             | 1   |        | mul_ln112_8                | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U126                             | 1   |        | mul_ln112_9                | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_14s_14_4_1_U121                             | 1   |        | mul_ln112_10               | mul  | dsp48  | 3       |
+|      mul_9s_4s_13_1_1_U108                                        | -   |        | mul_ln112_11               | mul  | auto   | 0       |
+|      mac_muladd_9s_4s_13s_14_4_1_U115                             | 1   |        | mul_ln112_12               | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U127                             | 1   |        | mul_ln112_13               | mul  | dsp48  | 3       |
+|      mul_9s_4s_13_1_1_U102                                        | -   |        | mul_ln112_14               | mul  | auto   | 0       |
+|      mul_9s_4s_13_1_1_U109                                        | -   |        | mul_ln112_15               | mul  | auto   | 0       |
+|      mac_muladd_9s_4s_16s_17_4_1_U131                             | 1   |        | mul_ln112_16               | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_17s_18_4_1_U133                             | 1   |        | mul_ln112_17               | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U116                             | 1   |        | mul_ln112_18               | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U128                             | 1   |        | mul_ln112_19               | mul  | dsp48  | 3       |
+|      mul_9s_4s_13_1_1_U103                                        | -   |        | mul_ln112_20               | mul  | auto   | 0       |
+|      mul_9s_4s_13_1_1_U110                                        | -   |        | mul_ln112_21               | mul  | auto   | 0       |
+|      mac_muladd_9s_4s_14s_14_4_1_U122                             | 1   |        | mul_ln112_22               | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_14s_14_4_1_U132                             | 1   |        | mul_ln112_23               | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U117                             | 1   |        | mul_ln112_24               | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U129                             | 1   |        | mul_ln112_25               | mul  | dsp48  | 3       |
+|      mul_9s_4s_13_1_1_U104                                        | -   |        | mul_ln112_26               | mul  | auto   | 0       |
+|      mul_9s_4s_13_1_1_U111                                        | -   |        | mul_ln112_27               | mul  | auto   | 0       |
+|      mac_muladd_9s_4s_13s_14_4_1_U118                             | 1   |        | mul_ln112_28               | mul  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U130                             | 1   |        | mul_ln112_29               | mul  | dsp48  | 3       |
+|      mul_9s_4s_13_1_1_U105                                        | -   |        | mul_ln112_30               | mul  | auto   | 0       |
+|      mul_9s_4s_13_1_1_U112                                        | -   |        | mul_ln112_31               | mul  | auto   | 0       |
+|      mac_muladd_9s_4s_13s_14_4_1_U114                             | 1   |        | add_ln112                  | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_14s_14_4_1_U119                             | 1   |        | add_ln112_1                | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U115                             | 1   |        | add_ln112_4                | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_14s_14_4_1_U121                             | 1   |        | add_ln112_5                | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_14s_15_4_1_U124                             | 1   |        | add_ln112_2                | add  | dsp48  | 3       |
+|      add_ln112_3_fu_3480_p2                                       | -   |        | add_ln112_3                | add  | fabric | 0       |
+|      mac_muladd_9s_4s_13s_14_4_1_U118                             | 1   |        | add_ln112_8                | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_14s_16_4_1_U120                             | 1   |        | add_ln112_6                | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U117                             | 1   |        | add_ln112_10               | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U116                             | 1   |        | add_ln112_11               | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_14s_14_4_1_U122                             | 1   |        | add_ln112_12               | add  | dsp48  | 3       |
+|      add_ln112_13_fu_3471_p2                                      | -   |        | add_ln112_13               | add  | fabric | 0       |
+|      mac_muladd_9s_4s_13s_14_4_1_U123                             | 1   |        | add_ln112_16               | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U125                             | 1   |        | add_ln112_18               | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U127                             | 1   |        | add_ln112_19               | add  | dsp48  | 3       |
+|      add_ln112_20_fu_3516_p2                                      | -   |        | add_ln112_20               | add  | fabric | 0       |
+|      add_ln112_17_fu_3526_p2                                      | -   |        | add_ln112_17               | add  | fabric | 0       |
+|      mac_muladd_9s_4s_13s_14_4_1_U126                             | 1   |        | add_ln112_22               | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U130                             | 1   |        | add_ln112_23               | add  | dsp48  | 3       |
+|      add_ln112_24_fu_3538_p2                                      | -   |        | add_ln112_24               | add  | fabric | 0       |
+|      mac_muladd_9s_4s_13s_14_4_1_U129                             | 1   |        | add_ln112_25               | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_13s_14_4_1_U128                             | 1   |        | add_ln112_26               | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_14s_14_4_1_U132                             | 1   |        | add_ln112_27               | add  | dsp48  | 3       |
+|      add_ln112_28_fu_3553_p2                                      | -   |        | add_ln112_28               | add  | fabric | 0       |
+|      add_ln112_29_fu_3563_p2                                      | -   |        | add_ln112_29               | add  | fabric | 0       |
+|      mac_muladd_9s_4s_16s_17_4_1_U131                             | 1   |        | add_ln112_14               | add  | dsp48  | 3       |
+|      mac_muladd_9s_4s_17s_18_4_1_U133                             | 1   |        | sumi                       | add  | dsp48  | 3       |
+|      fmul_32ns_32ns_32_4_max_dsp_1_U95                            | 3   |        | scale_product              | fmul | maxdsp | 3       |
+|      fmul_32ns_32ns_32_4_max_dsp_1_U96                            | 3   |        | term                       | fmul | maxdsp | 3       |
+|      fadd_32ns_32ns_32_6_no_dsp_1_U94                             | -   |        | next_1                     | fadd | fabric | 5       |
+|      b_2_fu_1176_p2                                               | -   |        | b_2                        | add  | fabric | 0       |
+|      add_ln420_fu_1360_p2                                         | -   |        | add_ln420                  | add  | fabric | 0       |
+|      add_ln421_fu_1187_p2                                         | -   |        | add_ln421                  | add  | fabric | 0       |
+|      mul_32s_18ns_32_1_1_U98                                      | 2   |        | mul_ln421                  | mul  | auto   | 0       |
+|      add_ln421_1_fu_2178_p2                                       | -   |        | add_ln421_1                | add  | fabric | 0       |
+|      add_ln434_fu_1192_p2                                         | -   |        | add_ln434                  | add  | fabric | 0       |
+|      group_5_fu_1204_p2                                           | -   |        | group_5                    | add  | fabric | 0       |
+|     + dot_half_to_float (grp_dot_half_to_float_fu_989)            | 0   |        |                            |      |        |         |
+|       add_ln22_fu_168_p2                                          | -   |        | add_ln22                   | add  | fabric | 0       |
+|       sub_ln34_fu_392_p2                                          | -   |        | sub_ln34                   | sub  | fabric | 0       |
+|   + write_shared_outputs                                          | 0   |        |                            |      |        |         |
+|    + write_shared_outputs_Pipeline_write_shared_output_packets    | 0   |        |                            |      |        |         |
+|      i_2_fu_128_p2                                                | -   |        | i_2                        | add  | fabric | 0       |
+|      add_ln469_fu_181_p2                                          | -   |        | add_ln469                  | add  | fabric | 0       |
++-------------------------------------------------------------------+-----+--------+----------------------------+------+--------+---------+
+
+
+================================================================
+== Bind Storage Report
+================================================================
++----------------------------------+------+------+--------+--------------+---------+--------+---------+
+| Name                             | BRAM | URAM | Pragma | Variable     | Storage | Impl   | Latency |
++----------------------------------+------+------+--------+--------------+---------+--------+---------+
+| + soc_gemm_hw                    | 148  | 0    |        |              |         |        |         |
+|  + run_shared_dataflow           | 148  | 0    |        |              |         |        |         |
+|    y_c_U                         | -    | -    |        | y_c          | fifo    | srl    | 0       |
+|    q0_fifo_0_U                   | 8    | -    |        | q0_fifo_0    | fifo    | memory | 0       |
+|    q0_fifo_1_U                   | 8    | -    |        | q0_fifo_1    | fifo    | memory | 0       |
+|    q0_fifo_2_U                   | 8    | -    |        | q0_fifo_2    | fifo    | memory | 0       |
+|    q0_fifo_3_U                   | 8    | -    |        | q0_fifo_3    | fifo    | memory | 0       |
+|    q0_fifo_4_U                   | 8    | -    |        | q0_fifo_4    | fifo    | memory | 0       |
+|    q0_fifo_5_U                   | 8    | -    |        | q0_fifo_5    | fifo    | memory | 0       |
+|    q0_fifo_6_U                   | 8    | -    |        | q0_fifo_6    | fifo    | memory | 0       |
+|    q0_fifo_7_U                   | 8    | -    |        | q0_fifo_7    | fifo    | memory | 0       |
+|    scale_fifo_0_U                | 1    | -    |        | scale_fifo_0 | fifo    | memory | 0       |
+|    scale_fifo_1_U                | 1    | -    |        | scale_fifo_1 | fifo    | memory | 0       |
+|    scale_fifo_2_U                | 1    | -    |        | scale_fifo_2 | fifo    | memory | 0       |
+|    scale_fifo_3_U                | 1    | -    |        | scale_fifo_3 | fifo    | memory | 0       |
+|    scale_fifo_4_U                | 1    | -    |        | scale_fifo_4 | fifo    | memory | 0       |
+|    scale_fifo_5_U                | 1    | -    |        | scale_fifo_5 | fifo    | memory | 0       |
+|    scale_fifo_6_U                | 1    | -    |        | scale_fifo_6 | fifo    | memory | 0       |
+|    scale_fifo_7_U                | 1    | -    |        | scale_fifo_7 | fifo    | memory | 0       |
+|    output_fifo_U                 | 4    | -    |        | output_fifo  | fifo    | memory | 0       |
+|   + compute_shared_groups        | 72   | 0    |        |              |         |        |         |
+|     x_words_V_U                  | 8    | -    |        | x_words_V    | ram_s2p | auto   | 1       |
+|     x_words_V_1_U                | 8    | -    |        | x_words_V_1  | ram_s2p | auto   | 1       |
+|     x_words_V_2_U                | 8    | -    |        | x_words_V_2  | ram_s2p | auto   | 1       |
+|     x_words_V_3_U                | 8    | -    |        | x_words_V_3  | ram_s2p | auto   | 1       |
+|     x_words_V_4_U                | 8    | -    |        | x_words_V_4  | ram_s2p | auto   | 1       |
+|     x_words_V_5_U                | 8    | -    |        | x_words_V_5  | ram_s2p | auto   | 1       |
+|     x_words_V_6_U                | 8    | -    |        | x_words_V_6  | ram_s2p | auto   | 1       |
+|     x_words_V_7_U                | 8    | -    |        | x_words_V_7  | ram_s2p | auto   | 1       |
+|     x_scales_U                   | 1    | -    |        | x_scales     | ram_1p  | auto   | 1       |
+|     x_scales_1_U                 | 1    | -    |        | x_scales_1   | ram_1p  | auto   | 1       |
+|     x_scales_2_U                 | 1    | -    |        | x_scales_2   | ram_1p  | auto   | 1       |
+|     x_scales_3_U                 | 1    | -    |        | x_scales_3   | ram_1p  | auto   | 1       |
+|     grp_dot_half_to_float_fu_993 | 1    | -    |        | x_scales_4   | ram_1p  | auto   | 1       |
+|     x_scales_5_U                 | 1    | -    |        | x_scales_5   | ram_1p  | auto   | 1       |
+|     x_scales_6_U                 | 1    | -    |        | x_scales_6   | ram_1p  | auto   | 1       |
+|     x_scales_7_U                 | 1    | -    |        | x_scales_7   | ram_1p  | auto   | 1       |
++----------------------------------+------+------+--------+--------------+---------+--------+---------+
+
+
+================================================================
+== Pragma Report
+================================================================
+* Valid Pragma Syntax
++-----------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+
+| Type            | Options                                                                                                                                                                               | Location                                                    |
++-----------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+
+| inline          |                                                                                                                                                                                       | ../../gemm/gemm.cpp:87 in dot_q4_0_block                    |
+| array_partition | variable=products complete                                                                                                                                                            | ../../gemm/gemm.cpp:94 in dot_q4_0_block, products          |
+| array_partition | variable=sums8 complete                                                                                                                                                               | ../../gemm/gemm.cpp:95 in dot_q4_0_block, sums8             |
+| array_partition | variable=sums4 complete                                                                                                                                                               | ../../gemm/gemm.cpp:96 in dot_q4_0_block, sums4             |
+| array_partition | variable=sums2 complete                                                                                                                                                               | ../../gemm/gemm.cpp:97 in dot_q4_0_block, sums2             |
+| unroll          |                                                                                                                                                                                       | ../../gemm/gemm.cpp:103 in dot_q4_0_block                   |
+| unroll          |                                                                                                                                                                                       | ../../gemm/gemm.cpp:117 in dot_q4_0_block                   |
+| unroll          |                                                                                                                                                                                       | ../../gemm/gemm.cpp:124 in dot_q4_0_block                   |
+| unroll          |                                                                                                                                                                                       | ../../gemm/gemm.cpp:131 in dot_q4_0_block                   |
+| inline          | off                                                                                                                                                                                   | ../../gemm/gemm.cpp:149 in load_shared_quants               |
+| pipeline        | II=1                                                                                                                                                                                  | ../../gemm/gemm.cpp:185 in load_shared_quants               |
+| inline          | off                                                                                                                                                                                   | ../../gemm/gemm.cpp:206 in load_shared_scales               |
+| pipeline        | II=1                                                                                                                                                                                  | ../../gemm/gemm.cpp:221 in load_shared_scales               |
+| inline          |                                                                                                                                                                                       | ../../gemm/gemm.cpp:245 in load_shared_activation_tile      |
+| inline          | off                                                                                                                                                                                   | ../../gemm/gemm.cpp:297 in compute_shared_groups            |
+| array_partition | variable=x_words complete dim=1                                                                                                                                                       | ../../gemm/gemm.cpp:302 in compute_shared_groups, x_words   |
+| array_partition | variable=x_scales complete dim=1                                                                                                                                                      | ../../gemm/gemm.cpp:303 in compute_shared_groups, x_scales  |
+| array_partition | variable=accum complete                                                                                                                                                               | ../../gemm/gemm.cpp:314 in compute_shared_groups, accum     |
+| pipeline        | II=1                                                                                                                                                                                  | ../../gemm/gemm.cpp:348 in compute_shared_groups            |
+| unroll          |                                                                                                                                                                                       | ../../gemm/gemm.cpp:428 in compute_shared_groups            |
+| inline          | off                                                                                                                                                                                   | ../../gemm/gemm.cpp:460 in write_shared_outputs             |
+| pipeline        | II=1                                                                                                                                                                                  | ../../gemm/gemm.cpp:465 in write_shared_outputs             |
+| inline          | off                                                                                                                                                                                   | ../../gemm/gemm.cpp:484 in run_shared_dataflow              |
+| dataflow        |                                                                                                                                                                                       | ../../gemm/gemm.cpp:485 in run_shared_dataflow              |
+| array_partition | variable=q0_fifo complete dim=1                                                                                                                                                       | ../../gemm/gemm.cpp:497 in run_shared_dataflow, q0_fifo     |
+| stream          | variable=q0_fifo depth=152                                                                                                                                                            | ../../gemm/gemm.cpp:498 in run_shared_dataflow, q0_fifo     |
+| array_partition | variable=scale_fifo complete dim=1                                                                                                                                                    | ../../gemm/gemm.cpp:503 in run_shared_dataflow, scale_fifo  |
+| stream          | variable=scale_fifo depth=152                                                                                                                                                         | ../../gemm/gemm.cpp:504 in run_shared_dataflow, scale_fifo  |
+| stream          | variable=output_fifo depth=16                                                                                                                                                         | ../../gemm/gemm.cpp:505 in run_shared_dataflow, output_fifo |
+| interface       | s_axilite port=return bundle=control                                                                                                                                                  | ../../gemm/gemm.cpp:542 in soc_gemm_hw, return              |
+| interface       | s_axilite port=w_quants bundle=control offset=0x10                                                                                                                                    | ../../gemm/gemm.cpp:543 in soc_gemm_hw, w_quants            |
+| interface       | s_axilite port=w_scales bundle=control offset=0x20                                                                                                                                    | ../../gemm/gemm.cpp:544 in soc_gemm_hw, w_scales            |
+| interface       | s_axilite port=x_native bundle=control offset=0x30                                                                                                                                    | ../../gemm/gemm.cpp:545 in soc_gemm_hw, x_native            |
+| interface       | s_axilite port=y bundle=control offset=0x40                                                                                                                                           | ../../gemm/gemm.cpp:546 in soc_gemm_hw, y                   |
+| interface       | s_axilite port=m bundle=control offset=0x50                                                                                                                                           | ../../gemm/gemm.cpp:547 in soc_gemm_hw, m                   |
+| interface       | s_axilite port=nb bundle=control offset=0x58                                                                                                                                          | ../../gemm/gemm.cpp:548 in soc_gemm_hw, nb                  |
+| interface       | s_axilite port=n bundle=control offset=0x60                                                                                                                                           | ../../gemm/gemm.cpp:549 in soc_gemm_hw, n                   |
+| interface       | s_axilite port=status bundle=control offset=0x68                                                                                                                                      | ../../gemm/gemm.cpp:550 in soc_gemm_hw, status              |
+| interface       | m_axi bundle=weights depth=4864 max_read_burst_length=64 max_widen_bitwidth=128 max_write_burst_length=2 num_read_outstanding=8 num_write_outstanding=1 offset=slave port=w_quants    | ../../gemm/build_hls.tcl:56 in soc_gemm_hw, w_quants        |
+| interface       | m_axi bundle=scales depth=2432 max_read_burst_length=64 max_widen_bitwidth=128 max_write_burst_length=2 num_read_outstanding=8 num_write_outstanding=1 offset=slave port=w_scales     | ../../gemm/build_hls.tcl:60 in soc_gemm_hw, w_scales        |
+| interface       | m_axi bundle=activation depth=41344 max_read_burst_length=16 max_widen_bitwidth=32 max_write_burst_length=2 num_read_outstanding=4 num_write_outstanding=1 offset=slave port=x_native | ../../gemm/build_hls.tcl:64 in soc_gemm_hw, x_native        |
+| interface       | m_axi bundle=output depth=128 max_read_burst_length=2 max_widen_bitwidth=32 max_write_burst_length=16 num_read_outstanding=1 num_write_outstanding=2 offset=slave port=y              | ../../gemm/build_hls.tcl:68 in soc_gemm_hw, y               |
++-----------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+
+
+

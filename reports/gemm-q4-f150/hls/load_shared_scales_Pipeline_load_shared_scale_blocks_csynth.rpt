@@ -1,0 +1,287 @@
+
+
+================================================================
+== Vitis HLS Report for 'load_shared_scales_Pipeline_load_shared_scale_blocks'
+================================================================
+* Date:           Wed Nov 25 04:07:21 2026
+
+* Version:        2022.2 (Build 3670227 on Oct 13 2022)
+* Project:        q4_f150_b64_o8
+* Solution:       solution (Vivado IP Flow Target)
+* Product family: zynquplus
+* Target device:  xczu3eg-sbva484-1-i
+
+
+================================================================
+== Performance Estimates
+================================================================
++ Timing: 
+    * Summary: 
+    +--------+---------+----------+------------+
+    |  Clock |  Target | Estimated| Uncertainty|
+    +--------+---------+----------+------------+
+    |ap_clk  |  6.67 ns|  4.867 ns|     1.80 ns|
+    +--------+---------+----------+------------+
+
++ Latency: 
+    * Summary: 
+    +---------+-------------+-----------+------------+-----+-------------+---------+
+    |    Latency (cycles)   |   Latency (absolute)   |      Interval     | Pipeline|
+    |   min   |     max     |    min    |     max    | min |     max     |   Type  |
+    +---------+-------------+-----------+------------+-----+-------------+---------+
+    |        3|  11824267274|  20.001 ns|  78.832 sec|    3|  11824267274|       no|
+    +---------+-------------+-----------+------------+-----+-------------+---------+
+
+    + Detail: 
+        * Instance: 
+        N/A
+
+        * Loop: 
+        +----------------------------------------------------+---------+-------------+----------+-----------+-----------+-----------------+----------+
+        |                                                    |    Latency (cycles)   | Iteration|  Initiation Interval  |       Trip      |          |
+        |                      Loop Name                     |   min   |     max     |  Latency |  achieved |   target  |      Count      | Pipelined|
+        +----------------------------------------------------+---------+-------------+----------+-----------+-----------+-----------------+----------+
+        |- load_shared_scale_tiles_load_shared_scale_blocks  |        1|  11824267272|        10|          1|          1|  0 ~ 11824267264|       yes|
+        +----------------------------------------------------+---------+-------------+----------+-----------+-----------+-----------------+----------+
+
+
+
+================================================================
+== Utilization Estimates
+================================================================
+* Summary: 
++-----------------+---------+-----+--------+-------+-----+
+|       Name      | BRAM_18K| DSP |   FF   |  LUT  | URAM|
++-----------------+---------+-----+--------+-------+-----+
+|DSP              |        -|    -|       -|      -|    -|
+|Expression       |        -|    -|       0|    352|    -|
+|FIFO             |        -|    -|       -|      -|    -|
+|Instance         |        -|    -|       -|      -|    -|
+|Memory           |        -|    -|       -|      -|    -|
+|Multiplexer      |        -|    -|       -|    162|    -|
+|Register         |        -|    -|     330|     32|    -|
++-----------------+---------+-----+--------+-------+-----+
+|Total            |        0|    0|     330|    546|    0|
++-----------------+---------+-----+--------+-------+-----+
+|Available        |      432|  360|  141120|  70560|    0|
++-----------------+---------+-----+--------+-------+-----+
+|Utilization (%)  |        0|    0|      ~0|     ~0|    0|
++-----------------+---------+-----+--------+-------+-----+
+
++ Detail: 
+    * Instance: 
+    N/A
+
+    * DSP: 
+    N/A
+
+    * Memory: 
+    N/A
+
+    * FIFO: 
+    N/A
+
+    * Expression: 
+    +------------------------------------+----------+----+---+----+------------+------------+
+    |            Variable Name           | Operation| DSP| FF| LUT| Bitwidth P0| Bitwidth P1|
+    +------------------------------------+----------+----+---+----+------------+------------+
+    |add_ln214_fu_289_p2                 |         +|   0|  0|  43|          36|           1|
+    |add_ln219_fu_373_p2                 |         +|   0|  0|  33|          26|           1|
+    |add_ln225_fu_328_p2                 |         +|   0|  0|  39|          32|           1|
+    |row_lane_1_fu_347_p2                |         +|   0|  0|  10|           3|           1|
+    |ap_block_state3_io                  |       and|   0|  0|   2|           1|           1|
+    |ap_predicate_op72_readreq_state3    |       and|   0|  0|   2|           1|           1|
+    |icmp_ln214_fu_284_p2                |      icmp|   0|  0|  20|          36|          36|
+    |icmp_ln219_fu_298_p2                |      icmp|   0|  0|  17|          26|          26|
+    |icmp_ln226_fu_342_p2                |      icmp|   0|  0|  20|          32|          32|
+    |ap_block_pp0_stage0_01001           |        or|   0|  0|   2|           1|           1|
+    |ap_block_pp0_stage0_11001           |        or|   0|  0|   2|           1|           1|
+    |ap_block_state11_pp0_stage0_iter10  |        or|   0|  0|   2|           1|           1|
+    |or_ln214_fu_303_p2                  |        or|   0|  0|   2|           1|           1|
+    |block_in_row_4_fu_334_p3            |    select|   0|  0|  32|           1|           1|
+    |block_in_row_5_fu_365_p3            |    select|   0|  0|  32|           1|           1|
+    |row_lane_2_fu_357_p3                |    select|   0|  0|  32|           1|          32|
+    |select_ln214_fu_309_p3              |    select|   0|  0|  32|           1|           1|
+    |select_ln219_fu_379_p3              |    select|   0|  0|  25|           1|           1|
+    |select_ln224_fu_321_p3              |    select|   0|  0|   3|           1|           3|
+    |ap_enable_pp0                       |       xor|   0|  0|   2|           1|           2|
+    +------------------------------------+----------+----+---+----+------------+------------+
+    |Total                               |          |   0|  0| 352|         204|         145|
+    +------------------------------------+----------+----+---+----+------------+------------+
+
+    * Multiplexer: 
+    +---------------------------------------+----+-----------+-----+-----------+
+    |                  Name                 | LUT| Input Size| Bits| Total Bits|
+    +---------------------------------------+----+-----------+-----+-----------+
+    |ap_done_int                            |   9|          2|    1|          2|
+    |ap_enable_reg_pp0_iter1                |   9|          2|    1|          2|
+    |ap_enable_reg_pp0_iter3                |   9|          2|    1|          2|
+    |ap_phi_mux_first_iter_0_phi_fu_235_p4  |   9|          2|    1|          2|
+    |block_fu_120                           |   9|          2|   26|         52|
+    |block_in_row_fu_116                    |   9|          2|   32|         64|
+    |indvar_flatten_fu_124                  |   9|          2|   36|         72|
+    |row_lane_fu_112                        |   9|          2|   32|         64|
+    |scale_fifo_0_blk_n                     |   9|          2|    1|          2|
+    |scale_fifo_1_blk_n                     |   9|          2|    1|          2|
+    |scale_fifo_2_blk_n                     |   9|          2|    1|          2|
+    |scale_fifo_3_blk_n                     |   9|          2|    1|          2|
+    |scale_fifo_4_blk_n                     |   9|          2|    1|          2|
+    |scale_fifo_5_blk_n                     |   9|          2|    1|          2|
+    |scale_fifo_6_blk_n                     |   9|          2|    1|          2|
+    |scale_fifo_7_blk_n                     |   9|          2|    1|          2|
+    |scales_blk_n_AR                        |   9|          2|    1|          2|
+    |scales_blk_n_R                         |   9|          2|    1|          2|
+    +---------------------------------------+----+-----------+-----+-----------+
+    |Total                                  | 162|         36|  140|        280|
+    +---------------------------------------+----+-----------+-----+-----------+
+
+    * Register: 
+    +----------------------------------+----+----+-----+-----------+
+    |               Name               | FF | LUT| Bits| Const Bits|
+    +----------------------------------+----+----+-----+-----------+
+    |ap_CS_fsm                         |   1|   0|    1|          0|
+    |ap_done_reg                       |   1|   0|    1|          0|
+    |ap_enable_reg_pp0_iter1           |   1|   0|    1|          0|
+    |ap_enable_reg_pp0_iter10          |   1|   0|    1|          0|
+    |ap_enable_reg_pp0_iter2           |   1|   0|    1|          0|
+    |ap_enable_reg_pp0_iter3           |   1|   0|    1|          0|
+    |ap_enable_reg_pp0_iter4           |   1|   0|    1|          0|
+    |ap_enable_reg_pp0_iter5           |   1|   0|    1|          0|
+    |ap_enable_reg_pp0_iter6           |   1|   0|    1|          0|
+    |ap_enable_reg_pp0_iter7           |   1|   0|    1|          0|
+    |ap_enable_reg_pp0_iter8           |   1|   0|    1|          0|
+    |ap_enable_reg_pp0_iter9           |   1|   0|    1|          0|
+    |ap_loop_exit_ready_pp0_iter2_reg  |   1|   0|    1|          0|
+    |ap_loop_exit_ready_pp0_iter3_reg  |   1|   0|    1|          0|
+    |ap_loop_exit_ready_pp0_iter4_reg  |   1|   0|    1|          0|
+    |ap_loop_exit_ready_pp0_iter5_reg  |   1|   0|    1|          0|
+    |ap_loop_exit_ready_pp0_iter6_reg  |   1|   0|    1|          0|
+    |ap_loop_exit_ready_pp0_iter7_reg  |   1|   0|    1|          0|
+    |ap_loop_exit_ready_pp0_iter8_reg  |   1|   0|    1|          0|
+    |ap_loop_exit_ready_pp0_iter9_reg  |   1|   0|    1|          0|
+    |block_fu_120                      |  26|   0|   26|          0|
+    |block_in_row_fu_116               |  32|   0|   32|          0|
+    |first_iter_0_reg_231              |   1|   0|    1|          0|
+    |icmp_ln214_reg_471                |   1|   0|    1|          0|
+    |indvar_flatten_fu_124             |  36|   0|   36|          0|
+    |nb_cast1_cast_reg_461             |   8|   0|   32|         24|
+    |or_ln214_reg_475                  |   1|   0|    1|          0|
+    |row_lane_fu_112                   |  32|   0|   32|          0|
+    |scales_addr_read_reg_489          |  16|   0|   16|          0|
+    |select_ln224_reg_479              |   3|   0|    3|          0|
+    |sext_ln219_cast_reg_466           |  64|   0|   64|          0|
+    |zext_ln219_cast_reg_456           |  26|   0|   32|          6|
+    |select_ln224_reg_479              |  64|  32|    3|          0|
+    +----------------------------------+----+----+-----+-----------+
+    |Total                             | 330|  32|  299|         30|
+    +----------------------------------+----+----+-----+-----------+
+
+
+
+================================================================
+== Interface
+================================================================
+* Summary: 
++-----------------------------+-----+-----+------------+------------------------------------------------------+--------------+
+|          RTL Ports          | Dir | Bits|  Protocol  |                     Source Object                    |    C Type    |
++-----------------------------+-----+-----+------------+------------------------------------------------------+--------------+
+|ap_clk                       |   in|    1|  ap_ctrl_hs|  load_shared_scales_Pipeline_load_shared_scale_blocks|  return value|
+|ap_rst                       |   in|    1|  ap_ctrl_hs|  load_shared_scales_Pipeline_load_shared_scale_blocks|  return value|
+|ap_start                     |   in|    1|  ap_ctrl_hs|  load_shared_scales_Pipeline_load_shared_scale_blocks|  return value|
+|ap_done                      |  out|    1|  ap_ctrl_hs|  load_shared_scales_Pipeline_load_shared_scale_blocks|  return value|
+|ap_idle                      |  out|    1|  ap_ctrl_hs|  load_shared_scales_Pipeline_load_shared_scale_blocks|  return value|
+|ap_ready                     |  out|    1|  ap_ctrl_hs|  load_shared_scales_Pipeline_load_shared_scale_blocks|  return value|
+|m_axi_scales_AWVALID         |  out|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_AWREADY         |   in|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_AWADDR          |  out|   64|       m_axi|                                                scales|       pointer|
+|m_axi_scales_AWID            |  out|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_AWLEN           |  out|   32|       m_axi|                                                scales|       pointer|
+|m_axi_scales_AWSIZE          |  out|    3|       m_axi|                                                scales|       pointer|
+|m_axi_scales_AWBURST         |  out|    2|       m_axi|                                                scales|       pointer|
+|m_axi_scales_AWLOCK          |  out|    2|       m_axi|                                                scales|       pointer|
+|m_axi_scales_AWCACHE         |  out|    4|       m_axi|                                                scales|       pointer|
+|m_axi_scales_AWPROT          |  out|    3|       m_axi|                                                scales|       pointer|
+|m_axi_scales_AWQOS           |  out|    4|       m_axi|                                                scales|       pointer|
+|m_axi_scales_AWREGION        |  out|    4|       m_axi|                                                scales|       pointer|
+|m_axi_scales_AWUSER          |  out|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_WVALID          |  out|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_WREADY          |   in|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_WDATA           |  out|   16|       m_axi|                                                scales|       pointer|
+|m_axi_scales_WSTRB           |  out|    2|       m_axi|                                                scales|       pointer|
+|m_axi_scales_WLAST           |  out|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_WID             |  out|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_WUSER           |  out|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARVALID         |  out|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARREADY         |   in|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARADDR          |  out|   64|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARID            |  out|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARLEN           |  out|   32|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARSIZE          |  out|    3|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARBURST         |  out|    2|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARLOCK          |  out|    2|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARCACHE         |  out|    4|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARPROT          |  out|    3|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARQOS           |  out|    4|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARREGION        |  out|    4|       m_axi|                                                scales|       pointer|
+|m_axi_scales_ARUSER          |  out|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_RVALID          |   in|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_RREADY          |  out|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_RDATA           |   in|   16|       m_axi|                                                scales|       pointer|
+|m_axi_scales_RLAST           |   in|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_RID             |   in|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_RFIFONUM        |   in|   11|       m_axi|                                                scales|       pointer|
+|m_axi_scales_RUSER           |   in|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_RRESP           |   in|    2|       m_axi|                                                scales|       pointer|
+|m_axi_scales_BVALID          |   in|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_BREADY          |  out|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_BRESP           |   in|    2|       m_axi|                                                scales|       pointer|
+|m_axi_scales_BID             |   in|    1|       m_axi|                                                scales|       pointer|
+|m_axi_scales_BUSER           |   in|    1|       m_axi|                                                scales|       pointer|
+|scale_fifo_6_din             |  out|   16|     ap_fifo|                                          scale_fifo_6|       pointer|
+|scale_fifo_6_num_data_valid  |   in|    9|     ap_fifo|                                          scale_fifo_6|       pointer|
+|scale_fifo_6_fifo_cap        |   in|    9|     ap_fifo|                                          scale_fifo_6|       pointer|
+|scale_fifo_6_full_n          |   in|    1|     ap_fifo|                                          scale_fifo_6|       pointer|
+|scale_fifo_6_write           |  out|    1|     ap_fifo|                                          scale_fifo_6|       pointer|
+|scale_fifo_5_din             |  out|   16|     ap_fifo|                                          scale_fifo_5|       pointer|
+|scale_fifo_5_num_data_valid  |   in|    9|     ap_fifo|                                          scale_fifo_5|       pointer|
+|scale_fifo_5_fifo_cap        |   in|    9|     ap_fifo|                                          scale_fifo_5|       pointer|
+|scale_fifo_5_full_n          |   in|    1|     ap_fifo|                                          scale_fifo_5|       pointer|
+|scale_fifo_5_write           |  out|    1|     ap_fifo|                                          scale_fifo_5|       pointer|
+|scale_fifo_4_din             |  out|   16|     ap_fifo|                                          scale_fifo_4|       pointer|
+|scale_fifo_4_num_data_valid  |   in|    9|     ap_fifo|                                          scale_fifo_4|       pointer|
+|scale_fifo_4_fifo_cap        |   in|    9|     ap_fifo|                                          scale_fifo_4|       pointer|
+|scale_fifo_4_full_n          |   in|    1|     ap_fifo|                                          scale_fifo_4|       pointer|
+|scale_fifo_4_write           |  out|    1|     ap_fifo|                                          scale_fifo_4|       pointer|
+|scale_fifo_3_din             |  out|   16|     ap_fifo|                                          scale_fifo_3|       pointer|
+|scale_fifo_3_num_data_valid  |   in|    9|     ap_fifo|                                          scale_fifo_3|       pointer|
+|scale_fifo_3_fifo_cap        |   in|    9|     ap_fifo|                                          scale_fifo_3|       pointer|
+|scale_fifo_3_full_n          |   in|    1|     ap_fifo|                                          scale_fifo_3|       pointer|
+|scale_fifo_3_write           |  out|    1|     ap_fifo|                                          scale_fifo_3|       pointer|
+|scale_fifo_2_din             |  out|   16|     ap_fifo|                                          scale_fifo_2|       pointer|
+|scale_fifo_2_num_data_valid  |   in|    9|     ap_fifo|                                          scale_fifo_2|       pointer|
+|scale_fifo_2_fifo_cap        |   in|    9|     ap_fifo|                                          scale_fifo_2|       pointer|
+|scale_fifo_2_full_n          |   in|    1|     ap_fifo|                                          scale_fifo_2|       pointer|
+|scale_fifo_2_write           |  out|    1|     ap_fifo|                                          scale_fifo_2|       pointer|
+|scale_fifo_1_din             |  out|   16|     ap_fifo|                                          scale_fifo_1|       pointer|
+|scale_fifo_1_num_data_valid  |   in|    9|     ap_fifo|                                          scale_fifo_1|       pointer|
+|scale_fifo_1_fifo_cap        |   in|    9|     ap_fifo|                                          scale_fifo_1|       pointer|
+|scale_fifo_1_full_n          |   in|    1|     ap_fifo|                                          scale_fifo_1|       pointer|
+|scale_fifo_1_write           |  out|    1|     ap_fifo|                                          scale_fifo_1|       pointer|
+|scale_fifo_0_din             |  out|   16|     ap_fifo|                                          scale_fifo_0|       pointer|
+|scale_fifo_0_num_data_valid  |   in|    9|     ap_fifo|                                          scale_fifo_0|       pointer|
+|scale_fifo_0_fifo_cap        |   in|    9|     ap_fifo|                                          scale_fifo_0|       pointer|
+|scale_fifo_0_full_n          |   in|    1|     ap_fifo|                                          scale_fifo_0|       pointer|
+|scale_fifo_0_write           |  out|    1|     ap_fifo|                                          scale_fifo_0|       pointer|
+|scale_fifo_7_din             |  out|   16|     ap_fifo|                                          scale_fifo_7|       pointer|
+|scale_fifo_7_num_data_valid  |   in|    9|     ap_fifo|                                          scale_fifo_7|       pointer|
+|scale_fifo_7_fifo_cap        |   in|    9|     ap_fifo|                                          scale_fifo_7|       pointer|
+|scale_fifo_7_full_n          |   in|    1|     ap_fifo|                                          scale_fifo_7|       pointer|
+|scale_fifo_7_write           |  out|    1|     ap_fifo|                                          scale_fifo_7|       pointer|
+|sext_ln219                   |   in|   63|     ap_none|                                            sext_ln219|        scalar|
+|bound                        |   in|   36|     ap_none|                                                 bound|        scalar|
+|nb_cast1                     |   in|    8|     ap_none|                                              nb_cast1|        scalar|
+|row_interleaved              |   in|    1|     ap_none|                                       row_interleaved|        scalar|
+|zext_ln219                   |   in|   26|     ap_none|                                            zext_ln219|        scalar|
+|blocks                       |   in|   26|     ap_none|                                                blocks|        scalar|
++-----------------------------+-----+-----+------------+------------------------------------------------------+--------------+
+

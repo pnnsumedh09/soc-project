@@ -1,0 +1,249 @@
+
+
+================================================================
+== Vitis HLS Report for 'load_shared_quants'
+================================================================
+* Date:           Wed Nov 25 04:07:21 2026
+
+* Version:        2022.2 (Build 3670227 on Oct 13 2022)
+* Project:        q4_f150_b64_o8
+* Solution:       solution (Vivado IP Flow Target)
+* Product family: zynquplus
+* Target device:  xczu3eg-sbva484-1-i
+
+
+================================================================
+== Performance Estimates
+================================================================
++ Timing: 
+    * Summary: 
+    +--------+---------+----------+------------+
+    |  Clock |  Target | Estimated| Uncertainty|
+    +--------+---------+----------+------------+
+    |ap_clk  |  6.67 ns|  4.867 ns|     1.80 ns|
+    +--------+---------+----------+------------+
+
++ Latency: 
+    * Summary: 
+    +---------+-------------+-----------+------------+-----+-------------+---------+
+    |    Latency (cycles)   |   Latency (absolute)   |      Interval     | Pipeline|
+    |   min   |     max     |    min    |     max    | min |     max     |   Type  |
+    +---------+-------------+-----------+------------+-----+-------------+---------+
+    |       10|  11824267281|  66.670 ns|  78.832 sec|   10|  11824267281|       no|
+    +---------+-------------+-----------+------------+-----+-------------+---------+
+
+    + Detail: 
+        * Instance: 
+        +-----------------------------------------------------------------+------------------------------------------------------+---------+-------------+-----------+------------+-----+-------------+---------+
+        |                                                                 |                                                      |    Latency (cycles)   |   Latency (absolute)   |      Interval     | Pipeline|
+        |                             Instance                            |                        Module                        |   min   |     max     |    min    |     max    | min |     max     |   Type  |
+        +-----------------------------------------------------------------+------------------------------------------------------+---------+-------------+-----------+------------+-----+-------------+---------+
+        |grp_load_shared_quants_Pipeline_load_shared_quant_blocks_fu_106  |load_shared_quants_Pipeline_load_shared_quant_blocks  |        3|  11824267274|  20.001 ns|  78.832 sec|    3|  11824267274|       no|
+        +-----------------------------------------------------------------+------------------------------------------------------+---------+-------------+-----------+------------+-----+-------------+---------+
+
+        * Loop: 
+        N/A
+
+
+
+================================================================
+== Utilization Estimates
+================================================================
+* Summary: 
++-----------------+---------+-----+--------+-------+-----+
+|       Name      | BRAM_18K| DSP |   FF   |  LUT  | URAM|
++-----------------+---------+-----+--------+-------+-----+
+|DSP              |        -|    2|       -|      -|    -|
+|Expression       |        -|    -|       0|     43|    -|
+|FIFO             |        -|    -|       -|      -|    -|
+|Instance         |        -|    -|     442|    546|    -|
+|Memory           |        -|    -|       -|      -|    -|
+|Multiplexer      |        -|    -|       -|    148|    -|
+|Register         |        -|    -|     133|      -|    -|
++-----------------+---------+-----+--------+-------+-----+
+|Total            |        0|    2|     575|    737|    0|
++-----------------+---------+-----+--------+-------+-----+
+|Available        |      432|  360|  141120|  70560|    0|
++-----------------+---------+-----+--------+-------+-----+
+|Utilization (%)  |        0|   ~0|      ~0|      1|    0|
++-----------------+---------+-----+--------+-------+-----+
+
++ Detail: 
+    * Instance: 
+    +-----------------------------------------------------------------+------------------------------------------------------+---------+----+-----+-----+-----+
+    |                             Instance                            |                        Module                        | BRAM_18K| DSP|  FF | LUT | URAM|
+    +-----------------------------------------------------------------+------------------------------------------------------+---------+----+-----+-----+-----+
+    |grp_load_shared_quants_Pipeline_load_shared_quant_blocks_fu_106  |load_shared_quants_Pipeline_load_shared_quant_blocks  |        0|   0|  442|  546|    0|
+    +-----------------------------------------------------------------+------------------------------------------------------+---------+----+-----+-----+-----+
+    |Total                                                            |                                                      |        0|   0|  442|  546|    0|
+    +-----------------------------------------------------------------+------------------------------------------------------+---------+----+-----+-----+-----+
+
+    * DSP: 
+    +------------------------------+--------------------------+-----------+
+    |           Instance           |          Module          | Expression|
+    +------------------------------+--------------------------+-----------+
+    |mul_mul_10ns_26ns_36_4_1_U23  |mul_mul_10ns_26ns_36_4_1  |    i0 * i1|
+    |mul_mul_8ns_18ns_26_4_1_U22   |mul_mul_8ns_18ns_26_4_1   |    i0 * i1|
+    +------------------------------+--------------------------+-----------+
+
+    * Memory: 
+    N/A
+
+    * FIFO: 
+    N/A
+
+    * Expression: 
+    +---------------------------+----------+----+---+----+------------+------------+
+    |       Variable Name       | Operation| DSP| FF| LUT| Bitwidth P0| Bitwidth P1|
+    +---------------------------+----------+----+---+----+------------+------------+
+    |add_ln153_fu_148_p2        |         +|   0|  0|  20|          13|           3|
+    |row_interleaved_fu_142_p2  |      icmp|   0|  0|  12|          13|           1|
+    |ap_block_state1            |        or|   0|  0|   2|           1|           1|
+    |column_tiles_fu_164_p3     |    select|   0|  0|   9|           1|           1|
+    +---------------------------+----------+----+---+----+------------+------------+
+    |Total                      |          |   0|  0|  43|          28|           6|
+    +---------------------------+----------+----+---+----+------------+------------+
+
+    * Multiplexer: 
+    +-----------------------+----+-----------+-----+-----------+
+    |          Name         | LUT| Input Size| Bits| Total Bits|
+    +-----------------------+----+-----------+-----+-----------+
+    |ap_NS_fsm              |  49|          9|    1|          9|
+    |ap_done                |   9|          2|    1|          2|
+    |m_axi_weights_ARVALID  |   9|          2|    1|          2|
+    |m_axi_weights_RREADY   |   9|          2|    1|          2|
+    |q0_fifo_0_write        |   9|          2|    1|          2|
+    |q0_fifo_1_write        |   9|          2|    1|          2|
+    |q0_fifo_2_write        |   9|          2|    1|          2|
+    |q0_fifo_3_write        |   9|          2|    1|          2|
+    |q0_fifo_4_write        |   9|          2|    1|          2|
+    |q0_fifo_5_write        |   9|          2|    1|          2|
+    |q0_fifo_6_write        |   9|          2|    1|          2|
+    |q0_fifo_7_write        |   9|          2|    1|          2|
+    +-----------------------+----+-----------+-----+-----------+
+    |Total                  | 148|         31|   12|         31|
+    +-----------------------+----+-----------+-----+-----------+
+
+    * Register: 
+    +------------------------------------------------------------------------------+----+----+-----+-----------+
+    |                                     Name                                     | FF | LUT| Bits| Const Bits|
+    +------------------------------------------------------------------------------+----+----+-----+-----------+
+    |ap_CS_fsm                                                                     |   8|   0|    8|          0|
+    |ap_done_reg                                                                   |   1|   0|    1|          0|
+    |blocks_reg_223                                                                |  26|   0|   26|          0|
+    |bound_reg_244                                                                 |  36|   0|   36|          0|
+    |grp_load_shared_quants_Pipeline_load_shared_quant_blocks_fu_106_ap_start_reg  |   1|   0|    1|          0|
+    |row_interleaved_reg_218                                                       |   1|   0|    1|          0|
+    |trunc_ln2_reg_239                                                             |  60|   0|   60|          0|
+    +------------------------------------------------------------------------------+----+----+-----+-----------+
+    |Total                                                                         | 133|   0|  133|          0|
+    +------------------------------------------------------------------------------+----+----+-----+-----------+
+
+
+
+================================================================
+== Interface
+================================================================
+* Summary: 
++--------------------------+-----+-----+------------+--------------------+--------------+
+|         RTL Ports        | Dir | Bits|  Protocol  |    Source Object   |    C Type    |
++--------------------------+-----+-----+------------+--------------------+--------------+
+|ap_clk                    |   in|    1|  ap_ctrl_hs|  load_shared_quants|  return value|
+|ap_rst                    |   in|    1|  ap_ctrl_hs|  load_shared_quants|  return value|
+|ap_start                  |   in|    1|  ap_ctrl_hs|  load_shared_quants|  return value|
+|ap_done                   |  out|    1|  ap_ctrl_hs|  load_shared_quants|  return value|
+|ap_continue               |   in|    1|  ap_ctrl_hs|  load_shared_quants|  return value|
+|ap_idle                   |  out|    1|  ap_ctrl_hs|  load_shared_quants|  return value|
+|ap_ready                  |  out|    1|  ap_ctrl_hs|  load_shared_quants|  return value|
+|m_axi_weights_AWVALID     |  out|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_AWREADY     |   in|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_AWADDR      |  out|   64|       m_axi|             weights|       pointer|
+|m_axi_weights_AWID        |  out|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_AWLEN       |  out|   32|       m_axi|             weights|       pointer|
+|m_axi_weights_AWSIZE      |  out|    3|       m_axi|             weights|       pointer|
+|m_axi_weights_AWBURST     |  out|    2|       m_axi|             weights|       pointer|
+|m_axi_weights_AWLOCK      |  out|    2|       m_axi|             weights|       pointer|
+|m_axi_weights_AWCACHE     |  out|    4|       m_axi|             weights|       pointer|
+|m_axi_weights_AWPROT      |  out|    3|       m_axi|             weights|       pointer|
+|m_axi_weights_AWQOS       |  out|    4|       m_axi|             weights|       pointer|
+|m_axi_weights_AWREGION    |  out|    4|       m_axi|             weights|       pointer|
+|m_axi_weights_AWUSER      |  out|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_WVALID      |  out|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_WREADY      |   in|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_WDATA       |  out|  128|       m_axi|             weights|       pointer|
+|m_axi_weights_WSTRB       |  out|   16|       m_axi|             weights|       pointer|
+|m_axi_weights_WLAST       |  out|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_WID         |  out|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_WUSER       |  out|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_ARVALID     |  out|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_ARREADY     |   in|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_ARADDR      |  out|   64|       m_axi|             weights|       pointer|
+|m_axi_weights_ARID        |  out|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_ARLEN       |  out|   32|       m_axi|             weights|       pointer|
+|m_axi_weights_ARSIZE      |  out|    3|       m_axi|             weights|       pointer|
+|m_axi_weights_ARBURST     |  out|    2|       m_axi|             weights|       pointer|
+|m_axi_weights_ARLOCK      |  out|    2|       m_axi|             weights|       pointer|
+|m_axi_weights_ARCACHE     |  out|    4|       m_axi|             weights|       pointer|
+|m_axi_weights_ARPROT      |  out|    3|       m_axi|             weights|       pointer|
+|m_axi_weights_ARQOS       |  out|    4|       m_axi|             weights|       pointer|
+|m_axi_weights_ARREGION    |  out|    4|       m_axi|             weights|       pointer|
+|m_axi_weights_ARUSER      |  out|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_RVALID      |   in|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_RREADY      |  out|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_RDATA       |   in|  128|       m_axi|             weights|       pointer|
+|m_axi_weights_RLAST       |   in|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_RID         |   in|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_RFIFONUM    |   in|   10|       m_axi|             weights|       pointer|
+|m_axi_weights_RUSER       |   in|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_RRESP       |   in|    2|       m_axi|             weights|       pointer|
+|m_axi_weights_BVALID      |   in|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_BREADY      |  out|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_BRESP       |   in|    2|       m_axi|             weights|       pointer|
+|m_axi_weights_BID         |   in|    1|       m_axi|             weights|       pointer|
+|m_axi_weights_BUSER       |   in|    1|       m_axi|             weights|       pointer|
+|w_quants                  |   in|   64|     ap_none|            w_quants|        scalar|
+|q0_fifo_0_din             |  out|  128|     ap_fifo|           q0_fifo_0|       pointer|
+|q0_fifo_0_num_data_valid  |   in|    9|     ap_fifo|           q0_fifo_0|       pointer|
+|q0_fifo_0_fifo_cap        |   in|    9|     ap_fifo|           q0_fifo_0|       pointer|
+|q0_fifo_0_full_n          |   in|    1|     ap_fifo|           q0_fifo_0|       pointer|
+|q0_fifo_0_write           |  out|    1|     ap_fifo|           q0_fifo_0|       pointer|
+|q0_fifo_1_din             |  out|  128|     ap_fifo|           q0_fifo_1|       pointer|
+|q0_fifo_1_num_data_valid  |   in|    9|     ap_fifo|           q0_fifo_1|       pointer|
+|q0_fifo_1_fifo_cap        |   in|    9|     ap_fifo|           q0_fifo_1|       pointer|
+|q0_fifo_1_full_n          |   in|    1|     ap_fifo|           q0_fifo_1|       pointer|
+|q0_fifo_1_write           |  out|    1|     ap_fifo|           q0_fifo_1|       pointer|
+|q0_fifo_2_din             |  out|  128|     ap_fifo|           q0_fifo_2|       pointer|
+|q0_fifo_2_num_data_valid  |   in|    9|     ap_fifo|           q0_fifo_2|       pointer|
+|q0_fifo_2_fifo_cap        |   in|    9|     ap_fifo|           q0_fifo_2|       pointer|
+|q0_fifo_2_full_n          |   in|    1|     ap_fifo|           q0_fifo_2|       pointer|
+|q0_fifo_2_write           |  out|    1|     ap_fifo|           q0_fifo_2|       pointer|
+|q0_fifo_3_din             |  out|  128|     ap_fifo|           q0_fifo_3|       pointer|
+|q0_fifo_3_num_data_valid  |   in|    9|     ap_fifo|           q0_fifo_3|       pointer|
+|q0_fifo_3_fifo_cap        |   in|    9|     ap_fifo|           q0_fifo_3|       pointer|
+|q0_fifo_3_full_n          |   in|    1|     ap_fifo|           q0_fifo_3|       pointer|
+|q0_fifo_3_write           |  out|    1|     ap_fifo|           q0_fifo_3|       pointer|
+|q0_fifo_4_din             |  out|  128|     ap_fifo|           q0_fifo_4|       pointer|
+|q0_fifo_4_num_data_valid  |   in|    9|     ap_fifo|           q0_fifo_4|       pointer|
+|q0_fifo_4_fifo_cap        |   in|    9|     ap_fifo|           q0_fifo_4|       pointer|
+|q0_fifo_4_full_n          |   in|    1|     ap_fifo|           q0_fifo_4|       pointer|
+|q0_fifo_4_write           |  out|    1|     ap_fifo|           q0_fifo_4|       pointer|
+|q0_fifo_5_din             |  out|  128|     ap_fifo|           q0_fifo_5|       pointer|
+|q0_fifo_5_num_data_valid  |   in|    9|     ap_fifo|           q0_fifo_5|       pointer|
+|q0_fifo_5_fifo_cap        |   in|    9|     ap_fifo|           q0_fifo_5|       pointer|
+|q0_fifo_5_full_n          |   in|    1|     ap_fifo|           q0_fifo_5|       pointer|
+|q0_fifo_5_write           |  out|    1|     ap_fifo|           q0_fifo_5|       pointer|
+|q0_fifo_6_din             |  out|  128|     ap_fifo|           q0_fifo_6|       pointer|
+|q0_fifo_6_num_data_valid  |   in|    9|     ap_fifo|           q0_fifo_6|       pointer|
+|q0_fifo_6_fifo_cap        |   in|    9|     ap_fifo|           q0_fifo_6|       pointer|
+|q0_fifo_6_full_n          |   in|    1|     ap_fifo|           q0_fifo_6|       pointer|
+|q0_fifo_6_write           |  out|    1|     ap_fifo|           q0_fifo_6|       pointer|
+|q0_fifo_7_din             |  out|  128|     ap_fifo|           q0_fifo_7|       pointer|
+|q0_fifo_7_num_data_valid  |   in|    9|     ap_fifo|           q0_fifo_7|       pointer|
+|q0_fifo_7_fifo_cap        |   in|    9|     ap_fifo|           q0_fifo_7|       pointer|
+|q0_fifo_7_full_n          |   in|    1|     ap_fifo|           q0_fifo_7|       pointer|
+|q0_fifo_7_write           |  out|    1|     ap_fifo|           q0_fifo_7|       pointer|
+|m                         |   in|   18|     ap_none|                   m|        scalar|
+|nb                        |   in|    8|     ap_none|                  nb|        scalar|
+|n                         |   in|   13|     ap_none|                   n|        scalar|
++--------------------------+-----+-----+------------+--------------------+--------------+
+

@@ -1,0 +1,200 @@
+
+
+================================================================
+== Vitis HLS Report for 'write_shared_outputs'
+================================================================
+* Date:           Wed Nov 25 04:07:25 2026
+
+* Version:        2022.2 (Build 3670227 on Oct 13 2022)
+* Project:        q4_f150_b64_o8
+* Solution:       solution (Vivado IP Flow Target)
+* Product family: zynquplus
+* Target device:  xczu3eg-sbva484-1-i
+
+
+================================================================
+== Performance Estimates
+================================================================
++ Timing: 
+    * Summary: 
+    +--------+---------+----------+------------+
+    |  Clock |  Target | Estimated| Uncertainty|
+    +--------+---------+----------+------------+
+    |ap_clk  |  6.67 ns|  4.867 ns|     1.80 ns|
+    +--------+---------+----------+------------+
+
++ Latency: 
+    * Summary: 
+    +---------+---------+----------+----------+-----+-----+---------+
+    |  Latency (cycles) |  Latency (absolute) |  Interval | Pipeline|
+    |   min   |   max   |    min   |    max   | min | max |   Type  |
+    +---------+---------+----------+----------+-----+-----+---------+
+    |        ?|        ?|         ?|         ?|    ?|    ?|       no|
+    +---------+---------+----------+----------+-----+-----+---------+
+
+    + Detail: 
+        * Instance: 
+        +---------------------------------------------------------------------+-----------------------------------------------------------+---------+---------+----------+----------+-----+-----+---------+
+        |                                                                     |                                                           |  Latency (cycles) |  Latency (absolute) |  Interval | Pipeline|
+        |                               Instance                              |                           Module                          |   min   |   max   |    min   |    max   | min | max |   Type  |
+        +---------------------------------------------------------------------+-----------------------------------------------------------+---------+---------+----------+----------+-----+-----+---------+
+        |grp_write_shared_outputs_Pipeline_write_shared_output_packets_fu_58  |write_shared_outputs_Pipeline_write_shared_output_packets  |        ?|        ?|         ?|         ?|    ?|    ?|       no|
+        +---------------------------------------------------------------------+-----------------------------------------------------------+---------+---------+----------+----------+-----+-----+---------+
+
+        * Loop: 
+        N/A
+
+
+
+================================================================
+== Utilization Estimates
+================================================================
+* Summary: 
++-----------------+---------+-----+--------+-------+-----+
+|       Name      | BRAM_18K| DSP |   FF   |  LUT  | URAM|
++-----------------+---------+-----+--------+-------+-----+
+|DSP              |        -|    -|       -|      -|    -|
+|Expression       |        -|    -|       0|      2|    -|
+|FIFO             |        -|    -|       -|      -|    -|
+|Instance         |        -|    -|     240|    254|    -|
+|Memory           |        -|    -|       -|      -|    -|
+|Multiplexer      |        -|    -|       -|     74|    -|
+|Register         |        -|    -|      69|      -|    -|
++-----------------+---------+-----+--------+-------+-----+
+|Total            |        0|    0|     309|    330|    0|
++-----------------+---------+-----+--------+-------+-----+
+|Available        |      432|  360|  141120|  70560|    0|
++-----------------+---------+-----+--------+-------+-----+
+|Utilization (%)  |        0|    0|      ~0|     ~0|    0|
++-----------------+---------+-----+--------+-------+-----+
+
++ Detail: 
+    * Instance: 
+    +---------------------------------------------------------------------+-----------------------------------------------------------+---------+----+-----+-----+-----+
+    |                               Instance                              |                           Module                          | BRAM_18K| DSP|  FF | LUT | URAM|
+    +---------------------------------------------------------------------+-----------------------------------------------------------+---------+----+-----+-----+-----+
+    |grp_write_shared_outputs_Pipeline_write_shared_output_packets_fu_58  |write_shared_outputs_Pipeline_write_shared_output_packets  |        0|   0|  240|  254|    0|
+    +---------------------------------------------------------------------+-----------------------------------------------------------+---------+----+-----+-----+-----+
+    |Total                                                                |                                                           |        0|   0|  240|  254|    0|
+    +---------------------------------------------------------------------+-----------------------------------------------------------+---------+----+-----+-----+-----+
+
+    * DSP: 
+    N/A
+
+    * Memory: 
+    N/A
+
+    * FIFO: 
+    N/A
+
+    * Expression: 
+    +-----------------+----------+----+---+----+------------+------------+
+    |  Variable Name  | Operation| DSP| FF| LUT| Bitwidth P0| Bitwidth P1|
+    +-----------------+----------+----+---+----+------------+------------+
+    |ap_block_state1  |        or|   0|  0|   2|           1|           1|
+    +-----------------+----------+----+---+----+------------+------------+
+    |Total            |          |   0|  0|   2|           1|           1|
+    +-----------------+----------+----+---+----+------------+------------+
+
+    * Multiplexer: 
+    +------------------------+----+-----------+-----+-----------+
+    |          Name          | LUT| Input Size| Bits| Total Bits|
+    +------------------------+----+-----------+-----+-----------+
+    |ap_NS_fsm               |  20|          4|    1|          4|
+    |ap_done                 |   9|          2|    1|          2|
+    |m_axi_output_r_AWVALID  |   9|          2|    1|          2|
+    |m_axi_output_r_BREADY   |   9|          2|    1|          2|
+    |m_axi_output_r_WVALID   |   9|          2|    1|          2|
+    |output_fifo_read        |   9|          2|    1|          2|
+    |y_blk_n                 |   9|          2|    1|          2|
+    +------------------------+----+-----------+-----+-----------+
+    |Total                   |  74|         16|    7|         16|
+    +------------------------+----+-----------+-----+-----------+
+
+    * Register: 
+    +----------------------------------------------------------------------------------+----+----+-----+-----------+
+    |                                       Name                                       | FF | LUT| Bits| Const Bits|
+    +----------------------------------------------------------------------------------+----+----+-----+-----------+
+    |ap_CS_fsm                                                                         |   3|   0|    3|          0|
+    |ap_done_reg                                                                       |   1|   0|    1|          0|
+    |grp_write_shared_outputs_Pipeline_write_shared_output_packets_fu_58_ap_start_reg  |   1|   0|    1|          0|
+    |y_read_reg_73                                                                     |  64|   0|   64|          0|
+    +----------------------------------------------------------------------------------+----+----+-----+-----------+
+    |Total                                                                             |  69|   0|   69|          0|
+    +----------------------------------------------------------------------------------+----+----+-----+-----------+
+
+
+
+================================================================
+== Interface
+================================================================
+* Summary: 
++----------------------------+-----+-----+------------+----------------------+--------------+
+|          RTL Ports         | Dir | Bits|  Protocol  |     Source Object    |    C Type    |
++----------------------------+-----+-----+------------+----------------------+--------------+
+|ap_clk                      |   in|    1|  ap_ctrl_hs|  write_shared_outputs|  return value|
+|ap_rst                      |   in|    1|  ap_ctrl_hs|  write_shared_outputs|  return value|
+|ap_start                    |   in|    1|  ap_ctrl_hs|  write_shared_outputs|  return value|
+|ap_done                     |  out|    1|  ap_ctrl_hs|  write_shared_outputs|  return value|
+|ap_continue                 |   in|    1|  ap_ctrl_hs|  write_shared_outputs|  return value|
+|ap_idle                     |  out|    1|  ap_ctrl_hs|  write_shared_outputs|  return value|
+|ap_ready                    |  out|    1|  ap_ctrl_hs|  write_shared_outputs|  return value|
+|output_fifo_dout            |   in|   72|     ap_fifo|           output_fifo|       pointer|
+|output_fifo_num_data_valid  |   in|    5|     ap_fifo|           output_fifo|       pointer|
+|output_fifo_fifo_cap        |   in|    5|     ap_fifo|           output_fifo|       pointer|
+|output_fifo_empty_n         |   in|    1|     ap_fifo|           output_fifo|       pointer|
+|output_fifo_read            |  out|    1|     ap_fifo|           output_fifo|       pointer|
+|m_axi_output_r_AWVALID      |  out|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_AWREADY      |   in|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_AWADDR       |  out|   64|       m_axi|              output_r|       pointer|
+|m_axi_output_r_AWID         |  out|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_AWLEN        |  out|   32|       m_axi|              output_r|       pointer|
+|m_axi_output_r_AWSIZE       |  out|    3|       m_axi|              output_r|       pointer|
+|m_axi_output_r_AWBURST      |  out|    2|       m_axi|              output_r|       pointer|
+|m_axi_output_r_AWLOCK       |  out|    2|       m_axi|              output_r|       pointer|
+|m_axi_output_r_AWCACHE      |  out|    4|       m_axi|              output_r|       pointer|
+|m_axi_output_r_AWPROT       |  out|    3|       m_axi|              output_r|       pointer|
+|m_axi_output_r_AWQOS        |  out|    4|       m_axi|              output_r|       pointer|
+|m_axi_output_r_AWREGION     |  out|    4|       m_axi|              output_r|       pointer|
+|m_axi_output_r_AWUSER       |  out|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_WVALID       |  out|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_WREADY       |   in|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_WDATA        |  out|   32|       m_axi|              output_r|       pointer|
+|m_axi_output_r_WSTRB        |  out|    4|       m_axi|              output_r|       pointer|
+|m_axi_output_r_WLAST        |  out|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_WID          |  out|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_WUSER        |  out|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARVALID      |  out|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARREADY      |   in|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARADDR       |  out|   64|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARID         |  out|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARLEN        |  out|   32|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARSIZE       |  out|    3|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARBURST      |  out|    2|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARLOCK       |  out|    2|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARCACHE      |  out|    4|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARPROT       |  out|    3|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARQOS        |  out|    4|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARREGION     |  out|    4|       m_axi|              output_r|       pointer|
+|m_axi_output_r_ARUSER       |  out|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_RVALID       |   in|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_RREADY       |  out|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_RDATA        |   in|   32|       m_axi|              output_r|       pointer|
+|m_axi_output_r_RLAST        |   in|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_RID          |   in|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_RFIFONUM     |   in|    2|       m_axi|              output_r|       pointer|
+|m_axi_output_r_RUSER        |   in|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_RRESP        |   in|    2|       m_axi|              output_r|       pointer|
+|m_axi_output_r_BVALID       |   in|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_BREADY       |  out|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_BRESP        |   in|    2|       m_axi|              output_r|       pointer|
+|m_axi_output_r_BID          |   in|    1|       m_axi|              output_r|       pointer|
+|m_axi_output_r_BUSER        |   in|    1|       m_axi|              output_r|       pointer|
+|y_dout                      |   in|   64|     ap_fifo|                     y|       pointer|
+|y_num_data_valid            |   in|    3|     ap_fifo|                     y|       pointer|
+|y_fifo_cap                  |   in|    3|     ap_fifo|                     y|       pointer|
+|y_empty_n                   |   in|    1|     ap_fifo|                     y|       pointer|
+|y_read                      |  out|    1|     ap_fifo|                     y|       pointer|
+|p_read                      |   in|   30|     ap_none|                p_read|        scalar|
++----------------------------+-----+-----+------------+----------------------+--------------+
+
