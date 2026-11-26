@@ -1,3 +1,4 @@
+set(GGML_SOC_GEMM_WEIGHT_BITS 4 CACHE STRING "FPGA weight format: 4=Q4_0, 8=Q8_0")
 # Grader builds use repository defaults. Explicit -D values still take priority.
 set(_soc_board_default OFF)
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _soc_processor)
